@@ -1,0 +1,32 @@
+# ── Credenciales — NUNCA subir ────────────────────────────────────────────────
+.env
+*.pem
+*.key
+
+# ── Python ─────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# ── Entornos virtuales ─────────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Datos y logs — generados en runtime ───────────────────────────────────────
+logs/
+data/hype_1h.csv
+data/backtest_chart.png
+data/compare_chart.png
+data/paper_state.json
+*.log
+
+# ── IDE ────────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
