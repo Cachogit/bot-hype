@@ -17,7 +17,8 @@ from hyperliquid.utils import constants
 
 logger = logging.getLogger(__name__)
 
-STATE_FILE = Path(__file__).parent.parent.parent / "data" / "paper_state.json"
+STATE_FILE    = Path(__file__).parent.parent.parent / "data" / "paper_state.json"
+STATE_FILE_15M = Path(__file__).parent.parent.parent / "data" / "paper_state_15m.json"
 
 ZONES_CFG = [
     dict(level=1, low=42.98, high=43.50, rsi_entry=40, capital=2000.0),
@@ -79,18 +80,18 @@ class BotState:
 
 # ── PERSISTENCIA ──────────────────────────────────────────────────────────────
 
-def load_state() -> BotState:
-    if STATE_FILE.exists():
+def load_state(path: Path = STATE_FILE) -> BotState:
+    if path.exists():
         try:
-            raw = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            raw = json.loads(path.read_text(encoding="utf-8"))
             return BotState(**raw)
         except Exception as e:
             logger.warning("No se pudo cargar estado: %s — empezando limpio", e)
     return BotState()
 
 
-def save_state(state: BotState):
-    STATE_FILE.write_text(
+def save_state(state: BotState, path: Path = STATE_FILE):
+    path.write_text(
         json.dumps(asdict(state) if hasattr(state, "__dataclass_fields__")
                    else state.__dict__, indent=2, default=str),
         encoding="utf-8",
@@ -107,12 +108,15 @@ def positions_to_state(state: BotState, positions: list[PaperPosition]):
 
 # ── DATOS DE MERCADO ───────────────────────────────────────────────────────────
 
-def fetch_candles(n: int = CANDLE_BUFFER) -> pd.DataFrame:
-    info    = Info(base_url=constants.MAINNET_API_URL, skip_ws=True)
-    end_ms  = int(time.time() * 1000)
-    start_ms = end_ms - n * 3600 * 1000
+_TF_MS = {"1h": 3600_000, "15m": 900_000}
 
-    raw = info.candles_snapshot("HYPE", "1h", start_ms, end_ms)
+
+def fetch_candles(n: int = CANDLE_BUFFER, timeframe: str = "1h") -> pd.DataFrame:
+    info     = Info(base_url=constants.MAINNET_API_URL, skip_ws=True)
+    end_ms   = int(time.time() * 1000)
+    start_ms = end_ms - n * _TF_MS[timeframe]
+
+    raw = info.candles_snapshot("HYPE", timeframe, start_ms, end_ms)
     if not raw:
         raise RuntimeError("No se recibieron velas de Hyperliquid")
 
@@ -141,10 +145,13 @@ def compute_rsi(closes: pd.Series, period: int = 14) -> pd.Series:
 
 class LiveZoneStrategy:
 
-    def __init__(self):
-        self.state     = load_state()
+    def __init__(self, timeframe: str = "1h"):
+        self.timeframe  = timeframe
+        state_file = STATE_FILE_15M if timeframe == "15m" else STATE_FILE
+        self.state     = load_state(state_file)
         self.positions = positions_from_state(self.state)
         self.zones     = ZONES_CFG
+        self._state_file = state_file
 
     def run_cycle(self) -> dict:
         """
@@ -156,9 +163,9 @@ class LiveZoneStrategy:
         Retorna un dict con los eventos del ciclo para que el monitor los procese.
         """
         now = datetime.now(timezone.utc).isoformat()
-        logger.info("=== Ciclo %d | %s ===", self.state.run_count + 1, now)
+        logger.info("=== Ciclo %d [%s] | %s ===", self.state.run_count + 1, self.timeframe, now)
 
-        df = fetch_candles(CANDLE_BUFFER)
+        df = fetch_candles(CANDLE_BUFFER, self.timeframe)
         df["rsi"] = compute_rsi(df["close"], RSI_PERIOD)
 
         # usamos las 2 ultimas velas cerradas (la ultima puede estar en curso)
@@ -172,11 +179,12 @@ class LiveZoneStrategy:
         c_close   = curr["close"]
 
         events = {
-            "timestamp":  now,
-            "price":      c_close,
-            "rsi":        curr_rsi,
-            "tp_hits":    [],
-            "entries":    [],
+            "timestamp":    now,
+            "timeframe":    self.timeframe,
+            "price":        c_close,
+            "rsi":          curr_rsi,
+            "tp_hits":      [],
+            "entries":      [],
             "zones_status": [],
         }
 
@@ -250,8 +258,8 @@ class LiveZoneStrategy:
                 qty         = capital / entry_price
                 entry_fee   = qty * entry_price * TAKER_FEE
 
-                import uuid
-                pos_id = f"Z{lvl}-{curr_time.strftime('%Y%m%d%H%M')}"
+                tf_tag = "15m" if self.timeframe == "15m" else "1h"
+                pos_id = f"Z{lvl}-{tf_tag}-{curr_time.strftime('%Y%m%d%H%M')}"
 
                 if is_reentry:
                     tp1 = entry_price * (1 + REENTRY_TP_PCT)
@@ -284,7 +292,7 @@ class LiveZoneStrategy:
         self.state.last_run      = now
         self.state.run_count    += 1
         positions_to_state(self.state, self.positions)
-        save_state(self.state)
+        save_state(self.state, self._state_file)
 
         return events
 

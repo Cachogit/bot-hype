@@ -24,6 +24,7 @@ data/hype_1h.csv
 data/backtest_chart.png
 data/compare_chart.png
 data/paper_state.json
+data/paper_state_15m.json
 *.log
 
 # ── IDE ────────────────────────────────────────────────────────────────────────

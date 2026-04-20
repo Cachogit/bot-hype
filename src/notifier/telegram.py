@@ -53,13 +53,13 @@ class TelegramNotifier:
 
     def alert_entry(self, zone: int, price: float, rsi: float,
                     qty: float, capital: float, tp1: float, tp2: float,
-                    is_reentry: bool = False) -> bool:
+                    is_reentry: bool = False, timeframe: str = "1H") -> bool:
         tag  = "RE-ENTRADA" if is_reentry else "ENTRADA"
         icon = "🔄" if is_reentry else "🟢"
         tp2_line = f"TP2: `${tp2:.3f}` (+4.5%)\n" if not is_reentry else ""
         tp1_label = "TP1: `${:.3f}` (+2.5%)\n".format(tp1) if not is_reentry else f"TP: `${tp1:.3f}` (+1.3%)\n"
         text = (
-            f"{icon} *{tag} — Zona {zone} HYPE/USDC*\n"
+            f"{icon} *{tag} — Zona {zone} HYPE/USDC [{timeframe}]*\n"
             f"{'─' * 28}\n"
             f"Precio entrada: `${price:.4f}`\n"
             f"RSI-14: `{rsi:.1f}`\n"
@@ -75,12 +75,12 @@ class TelegramNotifier:
 
     def alert_tp(self, zone: int, tp_num: int, entry_price: float,
                  tp_price: float, qty: float, pnl: float,
-                 fees: float, is_reentry: bool = False) -> bool:
+                 fees: float, is_reentry: bool = False, timeframe: str = "1H") -> bool:
         icon = "✅"
         label = f"TP{tp_num}" if not is_reentry else "TP"
         pct   = (tp_price - entry_price) / entry_price * 100
         text = (
-            f"{icon} *{label} ALCANZADO — Zona {zone} HYPE/USDC*\n"
+            f"{icon} *{label} ALCANZADO — Zona {zone} HYPE/USDC [{timeframe}]*\n"
             f"{'─' * 28}\n"
             f"Entrada: `${entry_price:.4f}`\n"
             f"Salida:  `${tp_price:.4f}` (+{pct:.1f}%)\n"
@@ -95,7 +95,7 @@ class TelegramNotifier:
         return self.send(text)
 
     def alert_zone_watch(self, price: float, rsi: float,
-                         zones_status: list[dict]) -> bool:
+                         zones_status: list[dict], timeframe: str = "1H") -> bool:
         lines = []
         for z in zones_status:
             in_zone = z["in_zone"]
@@ -106,8 +106,9 @@ class TelegramNotifier:
                 f"{'EN ZONA' if in_zone else 'fuera'}"
             )
         zones_text = "\n".join(lines)
+        label = "Resumen 15m" if timeframe == "15m" else "Resumen horario"
         text = (
-            f"📊 *Monitor HYPE — Resumen horario*\n"
+            f"📊 *Monitor HYPE — {label}*\n"
             f"{'─' * 28}\n"
             f"Precio: `${price:.4f}`\n"
             f"RSI-14: `{rsi:.1f}`\n"
@@ -142,7 +143,7 @@ class TelegramNotifier:
             f"*Zonas monitoreadas:*\n"
             f"{zone_lines}\n"
             f"{'─' * 28}\n"
-            f"Checkeando cada hora al cierre de vela 1H\n"
+            f"Timeframes activos: `1H` + `15m` (paralelo)\n"
             f"`{datetime.now().strftime('%Y-%m-%d %H:%M')} UTC`"
         )
         return self.send(text)
