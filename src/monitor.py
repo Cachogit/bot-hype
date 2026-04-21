@@ -1,16 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-Monitor principal: corre ciclos de estrategia en paralelo para 1H y 15m.
-Modo paper trading — no ejecuta ordenes reales.
+Monitor principal: chequea precio y RSI cada 2 minutos en tiempo real.
+
+Cada ciclo:
+  1. Obtiene precio mid actual del exchange.
+  2. Calcula RSI sobre velas CERRADAS de 1H y 15m.
+  3. Detecta cruce de RSI hacia arriba (40 o 30) en las ultimas 2 velas cerradas.
+  4. Si precio esta en zona Y hay cruce → ejecuta entrada.
 
 Uso:
-    python src/monitor.py            # corre ambos timeframes en loop
-    python src/monitor.py --now      # corre un ciclo de cada TF y sale
+    python src/monitor.py            # loop cada 2 minutos
+    python src/monitor.py --now      # un ciclo y sale
     python src/monitor.py --status   # muestra estado de posiciones y sale
 """
 import sys, io, os
 
-# Crear directorios necesarios antes de cualquier import que los use
 ROOT_DIR = os.path.join(os.path.dirname(__file__), "..")
 os.makedirs(os.path.join(ROOT_DIR, "logs"), exist_ok=True)
 os.makedirs(os.path.join(ROOT_DIR, "data"), exist_ok=True)
@@ -20,7 +24,6 @@ sys.path.insert(0, ROOT_DIR)
 
 import argparse
 import logging
-import threading
 import time
 from datetime import datetime, timezone, timedelta
 
@@ -30,6 +33,7 @@ load_dotenv()
 from src.strategies.live_zones import (LiveZoneStrategy, ZONES_CFG, load_state,
                                         STATE_FILE, STATE_FILE_15M)
 from src.notifier.telegram import TelegramNotifier
+from src.exchanges.hyperliquid_client import HyperliquidClient
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,32 +45,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger("monitor")
 
-
-def seconds_to_next_candle() -> float:
-    """Segundos hasta el proximo cierre de vela 1H (mas 5 segundos de margen)."""
-    now    = datetime.now(timezone.utc)
-    next_h = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-    return (next_h - now).total_seconds() + 5
-
-
-def seconds_to_next_15m_candle() -> float:
-    """Segundos hasta el proximo cierre de vela 15m (mas 5 segundos de margen)."""
-    now          = datetime.now(timezone.utc)
-    total_secs   = now.minute * 60 + now.second + now.microsecond / 1e6
-    secs_in_slot = total_secs % 900          # 900s = 15 min
-    return 900 - secs_in_slot + 5
+CHECK_INTERVAL  = 120   # segundos entre cada chequeo
+SUMMARY_EVERY   = 30    # enviar resumen cada N ciclos (~1 hora)
 
 
 def run_cycle(strategy: LiveZoneStrategy, notifier: TelegramNotifier,
-              send_summary: bool = True):
-    """Ejecuta un ciclo completo y envia alertas Telegram segun eventos."""
+              current_price: float, send_summary: bool = False):
+    """Ejecuta un ciclo RT y envia alertas Telegram segun eventos."""
     tf = strategy.timeframe.upper()
-    logger.info("Iniciando ciclo de estrategia [%s]...", tf)
+    logger.info("Iniciando ciclo RT [%s] | precio=%.4f", tf, current_price)
     try:
-        events = strategy.run_cycle()
+        events = strategy.run_realtime_cycle(current_price)
     except Exception as e:
-        logger.error("Error en ciclo [%s]: %s", tf, e)
-        notifier.alert_error(f"run_cycle [{tf}]", str(e))
+        logger.error("Error en ciclo RT [%s]: %s", tf, e)
+        notifier.alert_error(f"run_realtime_cycle [{tf}]", str(e))
         return
 
     price   = events["price"]
@@ -75,7 +67,7 @@ def run_cycle(strategy: LiveZoneStrategy, notifier: TelegramNotifier,
     tp_hits = events["tp_hits"]
     zones   = events["zones_status"]
 
-    # ── Alertas de TP ─────────────────────────────────────────────────────
+    # ── Alertas de TP ─────────────────────────────────────────────────
     for hit in tp_hits:
         pos = hit["pos"]
         notifier.alert_tp(
@@ -90,7 +82,7 @@ def run_cycle(strategy: LiveZoneStrategy, notifier: TelegramNotifier,
             timeframe=tf,
         )
 
-    # ── Alertas de entrada ────────────────────────────────────────────────
+    # ── Alertas de entrada ────────────────────────────────────────────
     for entry in entries:
         pos = entry["pos"]
         notifier.alert_entry(
@@ -105,18 +97,16 @@ def run_cycle(strategy: LiveZoneStrategy, notifier: TelegramNotifier,
             timeframe=tf,
         )
 
-    # ── Resumen (silencioso si no hubo eventos) ───────────────────────────
+    # ── Resumen periodico ─────────────────────────────────────────────
     if send_summary:
         notifier.alert_zone_watch(price, rsi, zones, timeframe=tf)
 
-    # ── Log de posiciones ─────────────────────────────────────────────────
-    logger.info(strategy.summary(price))
     logger.info(
-        "Ciclo #%d [%s] completo | precio=$%.4f rsi=%.1f | "
-        "entradas=%d tp_hits=%d",
+        "Ciclo RT #%d [%s] | precio=$%.4f rsi=%.1f | entradas=%d tp_hits=%d",
         strategy.state.run_count, tf,
         price, rsi, len(entries), len(tp_hits),
     )
+    logger.info(strategy.summary(price))
 
 
 def _print_state_block(state, label: str):
@@ -150,26 +140,11 @@ def show_status():
     _print_state_block(load_state(STATE_FILE_15M), "15m")
 
 
-def _loop(strategy: LiveZoneStrategy, notifier: TelegramNotifier,
-          wait_fn, send_summary: bool):
-    """Loop continuo para un timeframe dado. Corre en su propio hilo."""
-    tf = strategy.timeframe.upper()
-    while True:
-        run_cycle(strategy, notifier, send_summary=send_summary)
-        wait      = wait_fn()
-        next_time = datetime.now(timezone.utc) + timedelta(seconds=wait)
-        logger.info(
-            "[%s] Proximo ciclo en %.0f min | %s UTC",
-            tf, wait / 60, next_time.strftime("%H:%M"),
-        )
-        time.sleep(wait)
-
-
 def main():
-    parser = argparse.ArgumentParser(description="HYPE Zone Monitor")
-    parser.add_argument("--now",    action="store_true",
-                        help="Ejecutar un ciclo de cada TF ahora y salir")
-    parser.add_argument("--status", action="store_true",
+    parser = argparse.ArgumentParser(description="HYPE Zone Monitor — chequeo cada 2min")
+    parser.add_argument("--now",        action="store_true",
+                        help="Ejecutar un ciclo ahora y salir")
+    parser.add_argument("--status",     action="store_true",
                         help="Mostrar estado de posiciones y salir")
     parser.add_argument("--no-summary", action="store_true",
                         help="No enviar resumen periodico por Telegram")
@@ -179,22 +154,20 @@ def main():
         show_status()
         return
 
-    notifier    = TelegramNotifier.from_env()
+    notifier     = TelegramNotifier.from_env()
     strategy_1h  = LiveZoneStrategy(timeframe="1h")
     strategy_15m = LiveZoneStrategy(timeframe="15m")
+    hl           = HyperliquidClient.from_env()
 
     if args.now:
-        logger.info("Modo --now: ejecutando ciclo unico 1H + 15m")
-        run_cycle(strategy_1h,  notifier, send_summary=not args.no_summary)
-        run_cycle(strategy_15m, notifier, send_summary=not args.no_summary)
+        logger.info("Modo --now: ejecutando ciclo unico RT 1H + 15m")
+        price = hl.get_mid_price("HYPE")
+        run_cycle(strategy_1h,  notifier, price, send_summary=True)
+        run_cycle(strategy_15m, notifier, price, send_summary=False)
         return
 
-    # ── Loops continuos en paralelo ───────────────────────────────────────
-    logger.info("Monitor iniciado: 1H + 15m en paralelo")
-
+    # ── Startup ───────────────────────────────────────────────────────
     try:
-        from src.exchanges.hyperliquid_client import HyperliquidClient
-        hl    = HyperliquidClient.from_env()
         price = hl.get_mid_price("HYPE")
         notifier.alert_startup(
             network=os.getenv("HYPERLIQUID_NETWORK", "mainnet"),
@@ -204,17 +177,32 @@ def main():
     except Exception as e:
         logger.warning("No se pudo enviar startup alert: %s", e)
 
-    # 15m corre en un hilo daemon — muere si el proceso principal termina
-    t15 = threading.Thread(
-        target=_loop,
-        args=(strategy_15m, notifier, seconds_to_next_15m_candle, False),
-        daemon=True,
-        name="monitor-15m",
+    logger.info(
+        "Monitor RT iniciado — chequeo cada %ds | resumen cada %d ciclos (~%dmin)",
+        CHECK_INTERVAL, SUMMARY_EVERY, CHECK_INTERVAL * SUMMARY_EVERY // 60,
     )
-    t15.start()
 
-    # 1H corre en el hilo principal
-    _loop(strategy_1h, notifier, seconds_to_next_candle, not args.no_summary)
+    cycle_num = 0
+    while True:
+        cycle_num += 1
+        send_summary = (not args.no_summary) and (cycle_num % SUMMARY_EVERY == 0)
+
+        try:
+            price = hl.get_mid_price("HYPE")
+        except Exception as e:
+            logger.error("Error obteniendo precio: %s — saltando ciclo", e)
+            time.sleep(CHECK_INTERVAL)
+            continue
+
+        run_cycle(strategy_1h,  notifier, price, send_summary=send_summary)
+        run_cycle(strategy_15m, notifier, price, send_summary=False)
+
+        next_time = datetime.now(timezone.utc) + timedelta(seconds=CHECK_INTERVAL)
+        logger.info(
+            "Ciclo %d completo | proximo chequeo a las %s UTC",
+            cycle_num, next_time.strftime("%H:%M:%S"),
+        )
+        time.sleep(CHECK_INTERVAL)
 
 
 if __name__ == "__main__":

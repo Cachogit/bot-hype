@@ -153,51 +153,48 @@ class LiveZoneStrategy:
         self.zones     = ZONES_CFG
         self._state_file = state_file
 
-    def run_cycle(self) -> dict:
+    def run_realtime_cycle(self, current_price: float) -> dict:
         """
-        Ejecuta un ciclo completo:
-        1. Descarga las ultimas N velas 1H
-        2. Calcula RSI
-        3. Verifica TPs sobre posiciones abiertas
-        4. Detecta nuevas senales de entrada
-        Retorna un dict con los eventos del ciclo para que el monitor los procese.
+        Ciclo en tiempo real (cada 2 minutos).
+
+        - current_price: precio mid obtenido en tiempo real del exchange.
+        - RSI calculado SOLO sobre velas CERRADAS (se descarta la vela en curso).
+        - Cruce de RSI detectado en las ultimas 2 velas cerradas.
+        - TPs evaluados contra current_price.
+        - Zona verificada contra current_price.
         """
         now = datetime.now(timezone.utc).isoformat()
-        logger.info("=== Ciclo %d [%s] | %s ===", self.state.run_count + 1, self.timeframe, now)
+        logger.info("=== Ciclo RT %d [%s] | precio=%.4f | %s ===",
+                    self.state.run_count + 1, self.timeframe, current_price, now)
 
-        df = fetch_candles(CANDLE_BUFFER, self.timeframe)
+        # Descargamos N+1 velas y descartamos la ultima (en curso)
+        df = fetch_candles(CANDLE_BUFFER + 1, self.timeframe)
+        df = df.iloc[:-1]   # solo velas cerradas
         df["rsi"] = compute_rsi(df["close"], RSI_PERIOD)
 
-        # usamos las 2 ultimas velas cerradas (la ultima puede estar en curso)
-        prev = df.iloc[-2]
-        curr = df.iloc[-1]
-        prev_rsi  = df["rsi"].iloc[-2]
-        curr_rsi  = df["rsi"].iloc[-1]
-        curr_time = df.index[-1]
-        c_high    = curr["high"]
-        c_low     = curr["low"]
-        c_close   = curr["close"]
+        prev_rsi = df["rsi"].iloc[-2]
+        curr_rsi = df["rsi"].iloc[-1]
 
         events = {
             "timestamp":    now,
             "timeframe":    self.timeframe,
-            "price":        c_close,
+            "price":        current_price,
             "rsi":          curr_rsi,
             "tp_hits":      [],
             "entries":      [],
             "zones_status": [],
         }
 
-        # ── 1. Verificar TPs ───────────────────────────────────────────────
+        # ── 1. Verificar TPs con precio actual ─────────────────────────────
         open_pos = [p for p in self.positions if not p.closed]
         for pos in open_pos:
             if pos.reentry:
-                if not pos.tp1_hit and c_high >= pos.tp1:
-                    exit_fee    = pos.qty * pos.tp1 * MAKER_FEE
-                    pos.fees   += exit_fee
+                if not pos.tp1_hit and current_price >= pos.tp1:
+                    exit_fee      = pos.qty * pos.tp1 * MAKER_FEE
+                    pos.fees     += exit_fee
                     pos.gross_pnl = pos.qty * (pos.tp1 - pos.entry_price)
-                    pos.tp1_hit  = True
-                    pos.exit1_time = curr_time.isoformat()
+                    pos.tp1_hit   = True
+                    pos.exit1_time = now
                     events["tp_hits"].append({
                         "pos": pos, "tp_num": 1,
                         "qty": pos.qty, "tp_price": pos.tp1,
@@ -205,13 +202,13 @@ class LiveZoneStrategy:
                     })
                     logger.info("TP hit Z%d re-entry | pnl=$%.2f", pos.zone, pos.net_pnl)
             else:
-                if not pos.tp1_hit and c_high >= pos.tp1:
-                    exit_fee    = (pos.qty / 2) * pos.tp1 * MAKER_FEE
-                    pos.fees   += exit_fee
+                if not pos.tp1_hit and current_price >= pos.tp1:
+                    exit_fee       = (pos.qty / 2) * pos.tp1 * MAKER_FEE
+                    pos.fees      += exit_fee
                     pos.gross_pnl += (pos.qty / 2) * (pos.tp1 - pos.entry_price)
-                    pos.tp1_hit  = True
-                    pos.exit1_time = curr_time.isoformat()
-                    partial_pnl = (pos.qty / 2) * (pos.tp1 - pos.entry_price) - pos.entry_fee - exit_fee
+                    pos.tp1_hit    = True
+                    pos.exit1_time = now
+                    partial_pnl    = (pos.qty / 2) * (pos.tp1 - pos.entry_price) - pos.entry_fee - exit_fee
                     events["tp_hits"].append({
                         "pos": pos, "tp_num": 1,
                         "qty": pos.qty / 2, "tp_price": pos.tp1,
@@ -219,13 +216,13 @@ class LiveZoneStrategy:
                     })
                     logger.info("TP1 hit Z%d | pnl parcial=$%.2f", pos.zone, partial_pnl)
 
-                if pos.tp1_hit and not pos.tp2_hit and c_high >= pos.tp2:
-                    exit_fee    = (pos.qty / 2) * pos.tp2 * MAKER_FEE
-                    pos.fees   += exit_fee
+                if pos.tp1_hit and not pos.tp2_hit and current_price >= pos.tp2:
+                    exit_fee       = (pos.qty / 2) * pos.tp2 * MAKER_FEE
+                    pos.fees      += exit_fee
                     pos.gross_pnl += (pos.qty / 2) * (pos.tp2 - pos.entry_price)
-                    pos.tp2_hit  = True
-                    pos.exit2_time = curr_time.isoformat()
-                    partial_pnl = (pos.qty / 2) * (pos.tp2 - pos.entry_price) - exit_fee
+                    pos.tp2_hit    = True
+                    pos.exit2_time = now
+                    partial_pnl    = (pos.qty / 2) * (pos.tp2 - pos.entry_price) - exit_fee
                     events["tp_hits"].append({
                         "pos": pos, "tp_num": 2,
                         "qty": pos.qty / 2, "tp_price": pos.tp2,
@@ -241,25 +238,28 @@ class LiveZoneStrategy:
             threshold = cfg["rsi_entry"]
             capital   = cfg["capital"]
 
-            in_zone   = (c_low <= z_high) and (c_close >= z_low * 0.98)
+            # precio actual dentro del rango de la zona
+            in_zone   = z_low <= current_price <= z_high
+            # cruce hacia arriba del umbral en las ultimas 2 velas cerradas
             rsi_cross = rsi_valid and (prev_rsi < threshold <= curr_rsi)
 
             events["zones_status"].append({
                 **cfg,
-                "in_zone": in_zone,
+                "in_zone":  in_zone,
                 "curr_rsi": round(curr_rsi, 1) if not np.isnan(curr_rsi) else 0,
+                "prev_rsi": round(prev_rsi, 1) if not np.isnan(prev_rsi) else 0,
             })
 
             if rsi_cross and in_zone:
                 still_open  = [p for p in self.positions
                                if not p.closed and p.zone == lvl]
                 is_reentry  = len(still_open) > 0
-                entry_price = c_close
+                entry_price = current_price
                 qty         = capital / entry_price
                 entry_fee   = qty * entry_price * TAKER_FEE
 
                 tf_tag = "15m" if self.timeframe == "15m" else "1h"
-                pos_id = f"Z{lvl}-{tf_tag}-{curr_time.strftime('%Y%m%d%H%M')}"
+                pos_id = f"Z{lvl}-{tf_tag}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M')}"
 
                 if is_reentry:
                     tp1 = entry_price * (1 + REENTRY_TP_PCT)
@@ -270,7 +270,7 @@ class LiveZoneStrategy:
 
                 pos = PaperPosition(
                     id=pos_id, zone=lvl, reentry=is_reentry,
-                    entry_time=curr_time.isoformat(),
+                    entry_time=now,
                     entry_price=entry_price, qty=qty,
                     capital=capital, tp1=tp1, tp2=tp2,
                     entry_fee=entry_fee, fees=entry_fee,
@@ -282,8 +282,8 @@ class LiveZoneStrategy:
                     "is_reentry": is_reentry,
                 })
                 logger.info(
-                    "%s Z%d | px=%.4f rsi=%.1f tp1=%.4f tp2=%.4f",
-                    pos.tag, lvl, entry_price, curr_rsi, tp1, tp2,
+                    "%s Z%d | px=%.4f rsi=%.1f (cruce desde %.1f) tp1=%.4f tp2=%.4f",
+                    pos.tag, lvl, entry_price, curr_rsi, prev_rsi, tp1, tp2,
                 )
 
         # ── 3. Guardar estado ──────────────────────────────────────────────
