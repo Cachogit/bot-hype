@@ -152,6 +152,9 @@ class LiveZoneStrategy:
         self.positions = positions_from_state(self.state)
         self.zones     = ZONES_CFG
         self._state_file = state_file
+        # Timestamp de la ultima vela cerrada que disparó entrada por zona.
+        # Impide re-disparar el mismo cruce de RSI en ciclos del mismo periodo.
+        self._last_entry_candle: dict[int, object] = {}
 
     def run_realtime_cycle(self, current_price: float) -> dict:
         """
@@ -172,8 +175,9 @@ class LiveZoneStrategy:
         df = df.iloc[:-1]   # solo velas cerradas
         df["rsi"] = compute_rsi(df["close"], RSI_PERIOD)
 
-        prev_rsi = df["rsi"].iloc[-2]
-        curr_rsi = df["rsi"].iloc[-1]
+        prev_rsi       = df["rsi"].iloc[-2]
+        curr_rsi       = df["rsi"].iloc[-1]
+        last_candle_ts = df.index[-1]   # timestamp de la vela cerrada mas reciente
 
         events = {
             "timestamp":    now,
@@ -251,9 +255,25 @@ class LiveZoneStrategy:
             })
 
             if rsi_cross and in_zone:
-                still_open  = [p for p in self.positions
-                               if not p.closed and p.zone == lvl]
-                is_reentry  = len(still_open) > 0
+                # ── Cooldown: un cruce = una entrada por vela cerrada ──────
+                # Si ya se entró en este ciclo de vela para esta zona, saltar.
+                if self._last_entry_candle.get(lvl) == last_candle_ts:
+                    logger.debug("Z%d cooldown activo (misma vela cerrada)", lvl)
+                    continue
+
+                # ── Gate de re-entrada ─────────────────────────────────────
+                # RE-ENTRADA solo si hay INICIAL abierta.
+                # Si ya hay RE-ENTRADA abierta, no crear otra.
+                open_inicial = [p for p in self.positions
+                                if not p.closed and p.zone == lvl and not p.reentry]
+                open_reentry = [p for p in self.positions
+                                if not p.closed and p.zone == lvl and p.reentry]
+
+                if open_reentry:
+                    logger.debug("Z%d ya tiene re-entrada abierta, salteando", lvl)
+                    continue
+
+                is_reentry  = len(open_inicial) > 0
                 entry_price = current_price
                 qty         = capital / entry_price
                 entry_fee   = qty * entry_price * TAKER_FEE
@@ -276,6 +296,7 @@ class LiveZoneStrategy:
                     entry_fee=entry_fee, fees=entry_fee,
                 )
                 self.positions.append(pos)
+                self._last_entry_candle[lvl] = last_candle_ts  # activar cooldown
 
                 events["entries"].append({
                     "pos": pos, "rsi": curr_rsi,
