@@ -61,11 +61,12 @@ def run_cycle(strategy: LiveZoneStrategy, notifier: TelegramNotifier,
         notifier.alert_error(f"run_realtime_cycle [{tf}]", str(e))
         return
 
-    price   = events["price"]
-    rsi     = events["rsi"]
-    entries = events["entries"]
-    tp_hits = events["tp_hits"]
-    zones   = events["zones_status"]
+    price    = events["price"]
+    rsi      = events["rsi"]
+    live_rsi = events["live_rsi"]
+    entries  = events["entries"]
+    tp_hits  = events["tp_hits"]
+    zones    = events["zones_status"]
 
     # ── Alertas de TP ─────────────────────────────────────────────────
     for hit in tp_hits:
@@ -102,9 +103,9 @@ def run_cycle(strategy: LiveZoneStrategy, notifier: TelegramNotifier,
         notifier.alert_zone_watch(price, rsi, zones, timeframe=tf)
 
     logger.info(
-        "Ciclo RT #%d [%s] | precio=$%.4f rsi=%.1f | entradas=%d tp_hits=%d",
+        "Ciclo RT #%d [%s] | precio=$%.4f rsi_cerrado=%.1f rsi_live=%.1f | entradas=%d tp_hits=%d",
         strategy.state.run_count, tf,
-        price, rsi, len(entries), len(tp_hits),
+        price, rsi, live_rsi, len(entries), len(tp_hits),
     )
     logger.info(strategy.summary(price))
 

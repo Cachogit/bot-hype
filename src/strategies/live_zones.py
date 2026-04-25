@@ -22,7 +22,7 @@ STATE_FILE_15M = Path(__file__).parent.parent.parent / "data" / "paper_state_15m
 
 ZONES_CFG = [
     dict(level=1, low=42.98, high=43.50, rsi_entry=40, capital=2000.0),
-    dict(level=2, low=40.22, high=40.60, rsi_entry=40, capital=3000.0),
+    dict(level=2, low=40.22, high=41.00, rsi_entry=40, capital=3000.0),
     dict(level=3, low=37.80, high=38.35, rsi_entry=30, capital=4000.0),
     dict(level=4, low=45.50, high=46.20, rsi_entry=40, capital=1500.0),
 ]
@@ -161,8 +161,8 @@ class LiveZoneStrategy:
         Ciclo en tiempo real (cada 2 minutos).
 
         - current_price: precio mid obtenido en tiempo real del exchange.
-        - RSI calculado SOLO sobre velas CERRADAS (se descarta la vela en curso).
-        - Cruce de RSI detectado en las ultimas 2 velas cerradas.
+        - RSI calculado sobre N+1 velas; curr_rsi = ultima cerrada, live_rsi = vela en curso.
+        - Cruce de RSI detectado en las ultimas 2 velas cerradas (prev/curr).
         - TPs evaluados contra current_price.
         - Zona verificada contra current_price.
         """
@@ -170,20 +170,20 @@ class LiveZoneStrategy:
         logger.info("=== Ciclo RT %d [%s] | precio=%.4f | %s ===",
                     self.state.run_count + 1, self.timeframe, current_price, now)
 
-        # Descargamos N+1 velas y descartamos la ultima (en curso)
         df = fetch_candles(CANDLE_BUFFER + 1, self.timeframe)
-        df = df.iloc[:-1]   # solo velas cerradas
         df["rsi"] = compute_rsi(df["close"], RSI_PERIOD)
 
-        prev_rsi       = df["rsi"].iloc[-2]
-        curr_rsi       = df["rsi"].iloc[-1]
-        last_candle_ts = df.index[-1]   # timestamp de la vela cerrada mas reciente
+        prev_rsi       = df["rsi"].iloc[-3]   # antepenultima vela cerrada
+        curr_rsi       = df["rsi"].iloc[-2]   # ultima vela cerrada (señal de cruce)
+        live_rsi       = df["rsi"].iloc[-1]   # vela en curso (solo logging)
+        last_candle_ts = df.index[-2]         # ts de la ultima vela cerrada
 
         events = {
             "timestamp":    now,
             "timeframe":    self.timeframe,
             "price":        current_price,
             "rsi":          curr_rsi,
+            "live_rsi":     live_rsi,
             "tp_hits":      [],
             "entries":      [],
             "zones_status": [],
