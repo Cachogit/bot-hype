@@ -151,7 +151,7 @@ class HyperliquidClient:
         (token index 0). El filtro acepta ambas representaciones.
         """
         state = self.info.spot_user_state(self.subaccount)
-        logger.debug("spot_user_state raw: %s", state)
+        logger.info("spot_user_state subcuenta=%s raw=%s", self.subaccount, state)
         result = []
 
         for entry in state.get("balances", []):

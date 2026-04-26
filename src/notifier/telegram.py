@@ -214,11 +214,11 @@ class TelegramCommandPoller:
             time.sleep(self.POLL_INTERVAL)
 
     def _skip_pending(self):
-        """Al arrancar, avanza el offset al último update para no reprocesar comandos viejos."""
+        """Drena todos los updates pendientes sin procesarlos y avanza el offset."""
         try:
             r = requests.get(
                 f"{self._base}/getUpdates",
-                params={"offset": -1, "limit": 1, "timeout": 0},
+                params={"timeout": 0},   # sin offset = todos los pendientes
                 timeout=10,
             )
             data = r.json()
@@ -226,7 +226,8 @@ class TelegramCommandPoller:
                 results = data.get("result", [])
                 if results:
                     self._offset = results[-1]["update_id"] + 1
-                    logger.info("Poller: offset inicial = %d (skipped pending updates)", self._offset)
+                logger.info("Poller: offset inicial = %d (%d updates descartados)",
+                            self._offset, len(results))
         except Exception as e:
             logger.warning("No se pudo inicializar offset del poller: %s", e)
 
