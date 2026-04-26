@@ -233,8 +233,8 @@ class HyperliquidClient:
             limit_px=price,
             order_type={"limit": {"tif": "Gtc"}},
         )
+        logger.info("RAW response limit_buy: %s", resp)
         return self._parse_order_response(resp)
-
     def limit_sell(self, coin: str, qty: float, price: float) -> OrderResult:
         """Orden limite de venta (maker — tasa 0.01%)."""
         logger.info("LIMIT SELL %s | qty=%.6f | px=%.4f", coin, qty, price)
