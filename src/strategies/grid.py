@@ -19,7 +19,7 @@ from typing import Optional
 
 from config.grid_config import (
     ASSET, CAPITAL_USDC, MAX_CAPITAL_USDC, MAKER_FEE,
-    LEVEL_SPACING, LEVELS, GRID_LOW, GRID_HIGH, SZ_DECIMALS,
+    LEVEL_SPACING, LEVELS, GRID_LOW, GRID_HIGH, SZ_DECIMALS, MAX_AUTO_SHIFTS,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,6 +60,7 @@ def _load_state() -> dict:
         "total_realized_pnl": 0.0,
         "paused":             False,
         "pause_reason":       None,
+        "auto_shift_count":   0,
     }
 
 
@@ -345,19 +346,36 @@ class GridStrategy:
         self.notifier.alert_grid_reactivated(current_price)
         return result
 
-    def shift(self, direction: str, current_price: float) -> dict:
+    def shift(self, direction: str, current_price: float, is_auto: bool = False) -> dict:
         """
-        Cancela todas las órdenes abiertas, recalcula la grilla centrada en
-        el precio actual (N_SHIFT_LEVELS niveles), recoloca compras.
+        Cancela todas las órdenes abiertas, recalcula la grilla por debajo del
+        precio actual (new_high = precio * 0.995), recoloca compras.
+
+        is_auto=True: shift disparado automáticamente.  Se bloquea si el contador
+        de shifts automáticos ya alcanzó MAX_AUTO_SHIFTS; el usuario debe usar
+        /shift_up para resetear el contador y mover la grilla manualmente.
+        is_auto=False (manual): siempre ejecuta y resetea el contador.
         """
+        if is_auto:
+            count = self.state.get("auto_shift_count", 0)
+            if count >= MAX_AUTO_SHIFTS:
+                logger.warning("Auto-shift bloqueado: %d/%d shifts automáticos alcanzados",
+                               count, MAX_AUTO_SHIFTS)
+                self.notifier.alert_auto_shift_blocked(
+                    count=count, max_shifts=MAX_AUTO_SHIFTS, price=current_price,
+                )
+                return {}
+            self.state["auto_shift_count"] = count + 1
+        else:
+            self.state["auto_shift_count"] = 0   # reset al hacer shift manual
+
         # 1. Cancelar todas las órdenes abiertas de HYPE
         cancelled = self.client.cancel_all_orders(ASSET)
-        logger.info("Shift %s: canceladas %d órdenes", direction, len(cancelled))
+        logger.info("Shift %s: canceladas %d órdenes (auto=%s)", direction, len(cancelled), is_auto)
 
-        # 2. Calcular nuevo rango centrado en precio actual
-        half       = (N_SHIFT_LEVELS // 2) * LEVEL_SPACING
-        new_low    = round(current_price - half, 2)
-        new_high   = round(new_low + (N_SHIFT_LEVELS - 1) * LEVEL_SPACING, 2)
+        # 2. Calcular nuevo rango: high justo bajo el precio, low = high - rango completo
+        new_high        = round(current_price * 0.995, 2)
+        new_low         = round(new_high - (N_SHIFT_LEVELS * LEVEL_SPACING), 2)
         new_levels_list = [round(new_low + i * LEVEL_SPACING, 2) for i in range(N_SHIFT_LEVELS)]
 
         with self._lock:

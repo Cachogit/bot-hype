@@ -168,6 +168,18 @@ class TelegramNotifier:
         )
         return self.send(text)
 
+    def alert_auto_shift_blocked(self, count: int, max_shifts: int, price: float) -> bool:
+        text = (
+            f"⛔ *Auto-shift bloqueado — Grid HYPE*\n"
+            f"{'─' * 28}\n"
+            f"Se alcanzó el límite de `{max_shifts}` shifts automáticos.\n"
+            f"Precio actual: `${price:.4f}`\n"
+            f"{'─' * 28}\n"
+            f"Usá `/shift_up` para mover la grilla manualmente y resetear el contador.\n"
+            f"`{datetime.now().strftime('%Y-%m-%d %H:%M')} UTC`"
+        )
+        return self.send(text)
+
     def alert_grid_error(self, context: str, error: str) -> bool:
         text = (
             f"❌ *Error en Grid HYPE*\n"

@@ -5,6 +5,7 @@ GRID_LOW      = 38.00
 LEVEL_SPACING = 0.23    # distancia entre niveles en USD
 CAPITAL_USDC     = 50.0     # USDC por nivel  (20 × $50 = $1.000 total)
 MAX_CAPITAL_USDC = 1000.0   # tope de capital total que el bot puede desplegar
+MAX_AUTO_SHIFTS  = 3        # shifts automáticos permitidos antes de requerir /shift_up manual
 TAKER_FEE        = 0.0005
 MAKER_FEE        = 0.0001
 SZ_DECIMALS      = 2        # decimales permitidos para qty en HYPE spot (szDecimals=2)
