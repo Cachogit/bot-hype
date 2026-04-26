@@ -7,6 +7,7 @@ CAPITAL_USDC     = 50.0     # USDC por nivel  (20 × $50 = $1.000 total)
 MAX_CAPITAL_USDC = 1000.0   # tope de capital total que el bot puede desplegar
 TAKER_FEE        = 0.0005
 MAKER_FEE        = 0.0001
+SZ_DECIMALS      = 2        # decimales permitidos para qty en HYPE spot (szDecimals=2)
 
 # Venta siempre en el nivel siguiente: nivel_compra + LEVEL_SPACING
 # (no hay porcentaje fijo — el target es determinista y alineado a la grilla)

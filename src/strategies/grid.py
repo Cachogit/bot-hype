@@ -19,7 +19,7 @@ from typing import Optional
 
 from config.grid_config import (
     ASSET, CAPITAL_USDC, MAX_CAPITAL_USDC, MAKER_FEE,
-    LEVEL_SPACING, LEVELS, GRID_LOW, GRID_HIGH,
+    LEVEL_SPACING, LEVELS, GRID_LOW, GRID_HIGH, SZ_DECIMALS,
 )
 
 logger = logging.getLogger(__name__)
@@ -162,7 +162,7 @@ class GridStrategy:
                     oid = lvl.get("sell_order_id")
                     if not oid or oid not in open_oids:
                         sell_px  = round(level + LEVEL_SPACING, 2)
-                        qty      = lvl.get("qty") or round(CAPITAL_USDC / level, 4)
+                        qty      = lvl.get("qty") or round(CAPITAL_USDC / level, SZ_DECIMALS)
                         result   = self.client.limit_sell(ASSET, qty, sell_px)
                         if result.success:
                             lvl["sell_order_id"] = result.order_id
@@ -177,7 +177,7 @@ class GridStrategy:
                     "errors": errors, "skipped": skipped}
 
     def _place_buy(self, level_str: str, level: float) -> bool:
-        qty    = round(CAPITAL_USDC / level, 4)
+        qty    = round(CAPITAL_USDC / level, SZ_DECIMALS)
         result = self.client.limit_buy(ASSET, qty, level)
         if result.success:
             lvl = self.state["levels"][level_str]
