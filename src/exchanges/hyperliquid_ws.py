@@ -101,12 +101,24 @@ class HyperliquidWS:
     # ── Loop principal con reconexión ─────────────────────────────────────────
 
     def run_forever(self):
+        """
+        El SDK de Hyperliquid inicia el WebSocket en un hilo daemon propio
+        (WebsocketManager). No expone run_forever() en Info.
+        Este método conecta, luego monitorea que el hilo daemon siga vivo
+        y reconecta con backoff si muere.
+        """
         delay = _RECONNECT_BASE
         while True:
             try:
                 self.connect()
-                self._info.run_forever()
-                logger.warning("WS cerró limpiamente — reconectando en %ds", delay)
+                ws_mgr = getattr(self._info, "ws_manager", None)
+                if ws_mgr is None:
+                    raise RuntimeError("ws_manager no disponible en Info — verificar versión del SDK")
+                logger.info("WS daemon corriendo (hilo=%s)", ws_mgr.name)
+                # Monitorear que el hilo daemon siga vivo
+                while ws_mgr.is_alive():
+                    time.sleep(5)
+                logger.warning("WS daemon terminó — reconectando en %ds", delay)
             except Exception as e:
                 logger.error("WS error: %s — reconectando en %ds", e, delay)
             time.sleep(delay)

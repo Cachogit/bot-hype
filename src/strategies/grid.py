@@ -171,7 +171,8 @@ class GridStrategy:
             })
             logger.info("Buy colocado | nivel=%.2f qty=%.4f oid=%s", level, qty, result.order_id)
             return True
-        logger.error("Error colocando buy en %.2f: %s", level, result.status)
+        logger.error("Error colocando buy en %.2f | status=%s | raw=%s",
+                     level, result.status, result.raw)
         return False
 
     # ── Fill handler ──────────────────────────────────────────────────────────
