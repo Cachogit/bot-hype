@@ -80,12 +80,53 @@ class HyperliquidClient:
             account_address=self.subaccount,
         )
 
+        # Mapa base-token → nombre spot "@N" (ej. "HYPE" → "@107")
+        self._spot_names: dict[str, str] = {}
+        self._load_spot_meta()
+
         logger.info(
             "HyperliquidClient listo | red=%s | wallet=%s | subcuenta=%s",
             network,
             self.wallet.address[:10] + "...",
             self.subaccount[:10] + "...",
         )
+
+    # ── SPOT META ─────────────────────────────────────────────────────────────
+
+    def _load_spot_meta(self):
+        """
+        Registra los pares spot en exchange.coin_to_asset.
+        Para spot, el asset ID de orden = 10000 + universe_index.
+        Ej: HYPE/USDC = universe @107 → asset 10107.
+        Sin esto, el SDK mapea "HYPE" → 159 (perp) y las órdenes se rechazan.
+        """
+        try:
+            spot_meta = self.info.spot_meta()
+            token_names = {t["index"]: t["name"] for t in spot_meta.get("tokens", [])}
+
+            for pair in spot_meta.get("universe", []):
+                tokens = pair.get("tokens", [])
+                if len(tokens) != 2:
+                    continue
+                base_idx, quote_idx = tokens
+                universe_idx  = pair["index"]
+                pair_name     = pair["name"]          # "@107", "@0", etc.
+                spot_asset_id = 10000 + universe_idx
+
+                # Registrar por nombre del par (@107)
+                self.exchange.coin_to_asset[pair_name] = spot_asset_id
+
+                # Para pares USDC (quote=0), mapear también por nombre del token base
+                if quote_idx == 0:
+                    base_name = token_names.get(base_idx)
+                    if base_name:
+                        self._spot_names[base_name.upper()] = pair_name
+                        # Sobreescribir la entrada perp ("HYPE"→159) con spot ("HYPE"→10107)
+                        self.exchange.coin_to_asset[base_name] = spot_asset_id
+
+            logger.info("Spot meta cargado: %d pares USDC registrados", len(self._spot_names))
+        except Exception as e:
+            logger.error("Error cargando spot meta: %s", e)
 
     # ── FACTORY ───────────────────────────────────────────────────────────────
 
@@ -253,11 +294,13 @@ class HyperliquidClient:
         return self.exchange.cancel(name=coin, oid=order_id)
 
     def cancel_all_orders(self, coin: str) -> list[dict]:
-        """Cancela todas las ordenes abiertas de un coin."""
-        orders  = self.get_open_orders()
-        results = []
+        """Cancela todas las ordenes abiertas de un coin (perp o spot)."""
+        orders    = self.get_open_orders()
+        spot_name = self._spot_names.get(coin.upper(), "").upper()
+        results   = []
         for o in orders:
-            if o.get("coin", "").upper() == coin.upper():
+            order_coin = o.get("coin", "").upper()
+            if order_coin == coin.upper() or (spot_name and order_coin == spot_name):
                 results.append(self.cancel_order(coin, o["oid"]))
         return results
 
