@@ -86,6 +86,7 @@ def _build_command_handlers(grid: GridStrategy,
 
 
 def main():
+    time.sleep(10)  # esperar que Railway termine de levantar el entorno
     client   = HyperliquidClient.from_env()
     notifier = TelegramNotifier.from_env()
     grid     = GridStrategy(client, notifier)
