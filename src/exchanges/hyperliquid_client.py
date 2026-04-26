@@ -95,38 +95,28 @@ class HyperliquidClient:
 
     def _load_spot_meta(self):
         """
-        Registra los pares spot en exchange.coin_to_asset.
-        Para spot, el asset ID de orden = 10000 + universe_index.
-        Ej: HYPE/USDC = universe @107 → asset 10107.
-        Sin esto, el SDK mapea "HYPE" → 159 (perp) y las órdenes se rechazan.
+        Redirige el nombre del token base (ej. "HYPE") al par spot correcto
+        en el Info interno del Exchange, sobreescribiendo la entrada perp.
+
+        El Exchange resuelve órdenes via self.info.name_to_coin[name].
+        Por defecto "HYPE" apunta al perp (asset 159).
+        Aquí lo redirigimos a "@107" (HYPE/USDC spot, asset 10107).
         """
         try:
-            spot_meta = self.info.spot_meta()
-            token_names = {t["index"]: t["name"] for t in spot_meta.get("tokens", [])}
-
-            for pair in spot_meta.get("universe", []):
-                tokens = pair.get("tokens", [])
-                if len(tokens) != 2:
-                    continue
-                base_idx, quote_idx = tokens
-                universe_idx  = pair["index"]
-                pair_name     = pair["name"]          # "@107", "@0", etc.
-                spot_asset_id = 10000 + universe_idx
-
-                # Registrar por nombre del par (@107)
-                self.exchange.coin_to_asset[pair_name] = spot_asset_id
-
-                # Para pares USDC (quote=0), mapear también por nombre del token base
-                if quote_idx == 0:
-                    base_name = token_names.get(base_idx)
-                    if base_name:
-                        self._spot_names[base_name.upper()] = pair_name
-                        # Sobreescribir la entrada perp ("HYPE"→159) con spot ("HYPE"→10107)
-                        self.exchange.coin_to_asset[base_name] = spot_asset_id
-
-            logger.info("Spot meta cargado: %d pares USDC registrados", len(self._spot_names))
+            ex_info = self.exchange.info
+            # El Info interno ya tiene "HYPE/USDC" → "@107" cargado del spot meta.
+            # Solo redirigir pares /USDC para no mezclar con otros quote tokens.
+            for full_name, coin in list(ex_info.name_to_coin.items()):
+                if "/" in full_name:
+                    parts = full_name.split("/")
+                    if parts[1].upper() == "USDC":
+                        base = parts[0].upper()
+                        self._spot_names[base] = coin      # "HYPE" → "@107"
+                        ex_info.name_to_coin[base] = coin  # sobreescribe perp
+                        logger.info("Spot redirect: %s → %s (asset %s)",
+                                    base, coin, ex_info.coin_to_asset.get(coin))
         except Exception as e:
-            logger.error("Error cargando spot meta: %s", e)
+            logger.error("Error en _load_spot_meta: %s", e)
 
     # ── FACTORY ───────────────────────────────────────────────────────────────
 
