@@ -115,34 +115,44 @@ class HyperliquidClient:
         """
         Retorna los balances spot de la subcuenta.
         Si coin != None, filtra por ese token (ej. 'HYPE', 'USDC').
+
+        En Hyperliquid, USDC puede aparecer como coin='USDC' o coin='@0'
+        (token index 0). El filtro acepta ambas representaciones.
         """
-        state  = self.info.spot_user_state(self.subaccount)
+        state = self.info.spot_user_state(self.subaccount)
+        logger.debug("spot_user_state raw: %s", state)
         result = []
 
         for entry in state.get("balances", []):
-            c = entry["coin"]
-            if coin and c.upper() != coin.upper():
+            c         = entry.get("coin", "")
+            token_idx = entry.get("token")
+            # Normalizar: "@0" y token==0 son USDC
+            coin_name = "USDC" if (c == "@0" or token_idx == 0) else c
+
+            if coin and coin_name.upper() != coin.upper():
                 continue
+
+            total = float(entry.get("total", 0))
+            hold  = float(entry.get("hold",  0))
             result.append(SpotBalance(
-                coin=c,
-                total=float(entry["total"]),
-                available=float(entry["hold"]) and float(entry["total"]) - float(entry["hold"]),
-                held=float(entry["hold"]),
+                coin=coin_name,
+                total=total,
+                available=total - hold,
+                held=hold,
             ))
 
-        # si no hay ninguno del coin pedido, retorna cero
         if coin and not result:
             result.append(SpotBalance(coin=coin.upper(), total=0.0, available=0.0, held=0.0))
 
         return result
 
     def get_usdc_balance(self) -> float:
-        """Shortcut: retorna el USDC disponible en la subcuenta."""
+        """Retorna el USDC disponible en la subcuenta spot."""
         balances = self.get_spot_balance("USDC")
         return balances[0].total if balances else 0.0
 
     def get_coin_balance(self, coin: str) -> float:
-        """Shortcut: retorna el balance total de un token."""
+        """Retorna el balance total de un token spot."""
         balances = self.get_spot_balance(coin)
         return balances[0].total if balances else 0.0
 
