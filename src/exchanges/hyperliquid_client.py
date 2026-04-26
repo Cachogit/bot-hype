@@ -293,6 +293,16 @@ class HyperliquidClient:
             statuses  = data.get("statuses", [{}])
             first     = statuses[0] if statuses else {}
 
+            # Hyperliquid puede devolver status:"ok" con error por orden
+            # ej: {"error": "Insufficient balance"} — tratar como fallo
+            if "error" in first:
+                logger.error("Order rejected by exchange | error=%s | raw=%s",
+                             first["error"], resp)
+                return OrderResult(
+                    success=False, order_id=None, status="order_error",
+                    filled_sz=0.0, avg_px=0.0, raw=resp,
+                )
+
             # puede venir como "filled" o "resting"
             filled    = first.get("filled", {})
             resting   = first.get("resting", {})
@@ -300,6 +310,9 @@ class HyperliquidClient:
             order_id  = filled.get("oid") or resting.get("oid")
             filled_sz = float(filled.get("totalSz", 0))
             avg_px    = float(filled.get("avgPx", 0))
+
+            logger.debug("Order OK | oid=%s status=%s raw=%s",
+                         order_id, "filled" if filled else "resting", resp)
 
             return OrderResult(
                 success=True,

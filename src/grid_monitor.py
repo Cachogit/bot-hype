@@ -97,8 +97,9 @@ def main():
 
     result = grid.reconcile(price)
     logger.info(
-        "Reconciliación: %d buys colocados | %d restaurados | %d errores",
-        len(result["placed"]), len(result["restored"]), len(result["errors"]),
+        "Reconciliación: %d colocados | %d restaurados | %d errores | %d cap-skip",
+        len(result["placed"]), len(result["restored"]),
+        len(result["errors"]), len(result.get("skipped", [])),
     )
 
     # ── 2. Notificación de inicio ─────────────────────────────────────────────

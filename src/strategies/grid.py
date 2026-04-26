@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from config.grid_config import (
-    ASSET, CAPITAL_USDC, MAKER_FEE,
+    ASSET, CAPITAL_USDC, MAX_CAPITAL_USDC, MAKER_FEE,
     LEVEL_SPACING, LEVELS, GRID_LOW, GRID_HIGH,
 )
 
@@ -104,6 +104,13 @@ class GridStrategy:
 
     # ── Startup: reconciliación ───────────────────────────────────────────────
 
+    def _committed_capital(self) -> float:
+        """Capital total comprometido en órdenes y posiciones abiertas."""
+        return sum(
+            CAPITAL_USDC for lvl in self.state["levels"].values()
+            if lvl["status"] != IDLE
+        )
+
     def reconcile(self, current_price: float) -> dict:
         """Compara state vs órdenes reales en Hyperliquid; coloca las faltantes."""
         with self._lock:
@@ -111,6 +118,10 @@ class GridStrategy:
             placed    = []
             restored  = []
             errors    = []
+            skipped   = []
+
+            # Capital ya comprometido antes de empezar a colocar nuevas órdenes
+            committed = self._committed_capital()
 
             for level_str, lvl in self.state["levels"].items():
                 level  = float(level_str)
@@ -125,7 +136,12 @@ class GridStrategy:
                     continue
 
                 if status == IDLE:
-                    if self._place_buy(level_str, level):
+                    if committed + CAPITAL_USDC > MAX_CAPITAL_USDC:
+                        skipped.append(level)
+                        logger.info("Cap alcanzado (%.0f/%.0f) — saltando nivel %.2f",
+                                    committed, MAX_CAPITAL_USDC, level)
+                    elif self._place_buy(level_str, level):
+                        committed += CAPITAL_USDC
                         placed.append(level)
                     else:
                         errors.append(level)
@@ -134,7 +150,10 @@ class GridStrategy:
                     oid = lvl.get("buy_order_id")
                     if not oid or oid not in open_oids:
                         lvl.update({"status": IDLE, "buy_order_id": None})
-                        if self._place_buy(level_str, level):
+                        if committed + CAPITAL_USDC > MAX_CAPITAL_USDC:
+                            skipped.append(level)
+                        elif self._place_buy(level_str, level):
+                            committed += CAPITAL_USDC
                             restored.append(level)
                         else:
                             errors.append(level)
@@ -154,7 +173,8 @@ class GridStrategy:
                             errors.append(level)
 
             _save_state(self.state)
-            return {"placed": placed, "restored": restored, "errors": errors}
+            return {"placed": placed, "restored": restored,
+                    "errors": errors, "skipped": skipped}
 
     def _place_buy(self, level_str: str, level: float) -> bool:
         qty    = round(CAPITAL_USDC / level, 4)
