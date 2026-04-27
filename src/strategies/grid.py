@@ -232,6 +232,27 @@ class GridStrategy:
         lvl["buy_order_id"] = None
         sell_px = round(float(level_str) + LEVEL_SPACING, 2)
         qty     = lvl["qty"]
+
+        # Verificar saldo libre antes de colocar la venta
+        try:
+            balances  = self.client.get_spot_balance(ASSET)
+            free_hype = balances[0].available if balances else 0.0
+        except Exception as e:
+            logger.error("No se pudo consultar saldo HYPE: %s — abortando sell nivel=%s", e, level_str)
+            _save_state(self.state)
+            return
+
+        if free_hype <= 0:
+            logger.error("Saldo libre HYPE=0 — no se coloca sell | nivel=%s qty=%.4f", level_str, qty)
+            lvl["status"] = WAITING_SELL
+            _save_state(self.state)
+            return
+
+        if free_hype < qty:
+            logger.warning("Saldo libre HYPE %.4f < qty %.4f — ajustando sell a saldo disponible | nivel=%s",
+                           free_hype, qty, level_str)
+            qty = round(free_hype, SZ_DECIMALS)
+
         result  = self.client.limit_sell(ASSET, qty, sell_px)
 
         if result.success:
