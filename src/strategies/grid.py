@@ -264,7 +264,8 @@ class GridStrategy:
             balances  = self.client.get_spot_balance(ASSET)
             free_hype = balances[0].available if balances else 0.0
         except Exception as e:
-            logger.error("No se pudo consultar saldo HYPE: %s — abortando sell nivel=%s", e, level_str)
+            logger.error("No se pudo consultar saldo HYPE: %s — nivel=%s queda en WAITING_SELL", e, level_str)
+            lvl["status"] = WAITING_SELL
             _save_state(self.state)
             return
 
