@@ -81,6 +81,7 @@ class GridStrategy:
         self.notifier = notifier
         self._lock    = threading.Lock()
         self.state    = _load_state()
+        self._above_range_alerted = False
 
         # Sincronizar niveles configurados vs state persistido
         for lvl in LEVELS:
@@ -293,37 +294,57 @@ class GridStrategy:
     # ── Detección de rango (desde allMids WebSocket) ──────────────────────────
 
     def on_price(self, price: float):
-        """Llamado en cada tick de precio. Detecta salida/retorno al rango."""
-        in_range = self.grid_low <= price <= self.grid_high
-
-        if not in_range and not self.paused:
-            self._pause(price)
-        elif in_range and self.paused and self.state.get("pause_reason") == "out_of_range":
-            self._auto_reactivate(price)
+        """Llamado en cada tick de precio."""
+        if price < self.grid_low:
+            # Por debajo del piso: pausa automática
+            if not self.paused:
+                self._pause(price)
+            self._above_range_alerted = False
+        elif price > self.grid_high:
+            # Por encima del techo: solo alerta, bot sigue activo
+            if self.paused and self.state.get("pause_reason") == "out_of_range":
+                self._auto_reactivate(price)
+            threshold = self.grid_high * 1.015
+            if price > threshold and not self._above_range_alerted:
+                self._alert_above_range(price)
+                self._above_range_alerted = True
+            elif price <= threshold:
+                self._above_range_alerted = False
+        else:
+            # Dentro del rango
+            self._above_range_alerted = False
+            if self.paused and self.state.get("pause_reason") == "out_of_range":
+                self._auto_reactivate(price)
 
     def _pause(self, price: float):
         with self._lock:
             if self.paused:
                 return
-            direction = "inferior" if price < self.grid_low else "superior"
             self.state["paused"]       = True
             self.state["pause_reason"] = "out_of_range"
             _save_state(self.state)
 
-        hype_inv     = self.hype_in_inventory()
-        latent_loss  = self._latent_pnl(price) if price < self.grid_low else None
-        usdc_avail   = self.client.get_usdc_balance() if price > self.grid_high else None
+        hype_inv    = self.hype_in_inventory()
+        latent_loss = self._latent_pnl(price)
 
-        logger.warning("Precio $%.4f fuera de rango [%.2f-%.2f] — bot pausado",
-                       price, self.grid_low, self.grid_high)
+        logger.warning("Precio $%.4f por debajo del piso %.2f — bot pausado",
+                       price, self.grid_low)
         self.notifier.alert_grid_out_of_range(
-            direction=direction,
+            direction="inferior",
             price=price,
             grid_low=self.grid_low,
             grid_high=self.grid_high,
             hype_inventory=hype_inv,
             latent_loss=latent_loss,
-            usdc_available=usdc_avail,
+            usdc_available=None,
+        )
+
+    def _alert_above_range(self, price: float):
+        logger.info("Precio $%.4f supera techo+1.5%% (%.2f) — alerta enviada",
+                    price, self.grid_high * 1.015)
+        self.notifier.alert_grid_above_range(
+            price=price,
+            grid_high=self.grid_high,
         )
 
     def _auto_reactivate(self, price: float):

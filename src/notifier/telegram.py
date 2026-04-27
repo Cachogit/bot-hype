@@ -168,6 +168,14 @@ class TelegramNotifier:
         )
         return self.send(text)
 
+    def alert_grid_above_range(self, price: float, grid_high: float) -> bool:
+        text = (
+            f"⚠️ *HYPE +1.5% por encima de la grilla*\n"
+            f"Precio: `${price:.4f}` | Techo: `${grid_high:.2f}`\n"
+            f"Considerá `/shift_up` para reposicionar"
+        )
+        return self.send(text)
+
     def alert_auto_shift_blocked(self, count: int, max_shifts: int, price: float) -> bool:
         text = (
             f"⛔ *Auto-shift bloqueado — Grid HYPE*\n"
