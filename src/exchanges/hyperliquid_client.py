@@ -283,15 +283,21 @@ class HyperliquidClient:
         logger.info("CANCEL %s oid=%d", coin, order_id)
         return self.exchange.cancel(name=coin, oid=order_id)
 
-    def cancel_all_orders(self, coin: str) -> list[dict]:
-        """Cancela todas las ordenes abiertas de un coin (perp o spot)."""
+    def cancel_all_orders(self, coin: str, side: str | None = None) -> list[dict]:
+        """Cancela órdenes abiertas de un coin (perp o spot).
+
+        side: 'B' para cancelar solo compras, 'A' para solo ventas, None para todas.
+        """
         orders    = self.get_open_orders()
         spot_name = self._spot_names.get(coin.upper(), "").upper()
         results   = []
         for o in orders:
             order_coin = o.get("coin", "").upper()
-            if order_coin == coin.upper() or (spot_name and order_coin == spot_name):
-                results.append(self.cancel_order(coin, o["oid"]))
+            if order_coin != coin.upper() and not (spot_name and order_coin == spot_name):
+                continue
+            if side is not None and o.get("side") != side:
+                continue
+            results.append(self.cancel_order(coin, o["oid"]))
         return results
 
     # ── TRANSFERENCIAS ────────────────────────────────────────────────────────
