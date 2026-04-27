@@ -117,6 +117,9 @@ class GridStrategy:
     def reconcile(self, current_price: float) -> dict:
         """Compara state vs órdenes reales en Hyperliquid; coloca las faltantes."""
         with self._lock:
+            cancelled = self.client.cancel_all_orders(ASSET)
+            if cancelled:
+                logger.info("reconcile: canceladas %d órdenes previas", len(cancelled))
             open_oids = {o["oid"] for o in self.client.get_open_orders()}
             placed    = []
             restored  = []
