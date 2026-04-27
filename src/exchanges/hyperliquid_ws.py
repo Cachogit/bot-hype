@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 _RECONNECT_BASE = 5
 _RECONNECT_MAX  = 120
+_HYPE_SPOT_ID   = "@107"   # fallback: coin ID de HYPE en spot Hyperliquid
 
 
 class HyperliquidWS:
@@ -68,15 +69,27 @@ class HyperliquidWS:
         if msg.get("channel") != "userFills":
             return
         data = msg.get("data", {})
-        if data.get("isSnapshot"):
+        if not isinstance(data, dict):
+            logger.warning("userFills data inesperado (tipo=%s): %s", type(data).__name__, data)
             return
-        for fill in data.get("fills", []):
+        is_snapshot = data.get("isSnapshot", False)
+        fills = data.get("fills", [])
+        logger.debug("userFills recibido | snapshot=%s | fills=%d | spot_id=%s",
+                     is_snapshot, len(fills), self._spot_id)
+        if is_snapshot:
+            return
+        for fill in fills:
             coin = fill.get("coin", "")
-            if coin.upper() in (self.coin, self._spot_id.upper()):
-                try:
-                    self.on_fill(fill)
-                except Exception as e:
-                    logger.error("Error en on_fill: %s | fill=%s", e, fill)
+            expected = {self.coin.upper(), self._spot_id.upper()}
+            if self.coin.upper() == "HYPE":
+                expected.add(_HYPE_SPOT_ID)
+            if coin.upper() not in expected:
+                logger.debug("Fill ignorado (coin=%s no en %s)", coin, expected)
+                continue
+            try:
+                self.on_fill(fill)
+            except Exception as e:
+                logger.error("Error en on_fill: %s | fill=%s", e, fill)
 
     def _handle_mids(self, msg: dict):
         if msg.get("channel") != "allMids":
@@ -116,6 +129,7 @@ class HyperliquidWS:
                     raise RuntimeError("ws_manager no disponible en Info — verificar versión del SDK")
                 logger.info("WS daemon corriendo (hilo=%s)", ws_mgr.name)
                 # Monitorear que el hilo daemon siga vivo
+                delay = _RECONNECT_BASE  # reset tras conexión exitosa
                 while ws_mgr.is_alive():
                     time.sleep(5)
                 logger.warning("WS daemon terminó — reconectando en %ds", delay)
