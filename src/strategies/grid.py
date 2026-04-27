@@ -13,6 +13,7 @@ Manejo de rango:
 import json
 import logging
 import threading
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
@@ -163,14 +164,33 @@ class GridStrategy:
                 elif status == WAITING_SELL:
                     oid = lvl.get("sell_order_id")
                     if not oid or oid not in open_oids:
-                        sell_px  = round(level + LEVEL_SPACING, 2)
-                        qty      = lvl.get("qty") or round(CAPITAL_USDC / level, SZ_DECIMALS)
-                        result   = self.client.limit_sell(ASSET, qty, sell_px)
+                        sell_px = round(level + LEVEL_SPACING, 2)
+                        qty     = lvl.get("qty") or round(CAPITAL_USDC / level, SZ_DECIMALS)
+
+                        try:
+                            balances  = self.client.get_spot_balance(ASSET)
+                            free_hype = balances[0].available if balances else 0.0
+                        except Exception as e:
+                            logger.error("No se pudo consultar saldo HYPE en reconcile: %s | nivel=%.2f", e, level)
+                            errors.append(level)
+                            continue
+
+                        if free_hype <= 0:
+                            logger.error("Saldo libre HYPE=0 — no se restaura sell | nivel=%.2f qty=%.4f", level, qty)
+                            errors.append(level)
+                            continue
+
+                        if free_hype < qty:
+                            logger.warning("Saldo libre HYPE %.4f < qty %.4f — ajustando sell en reconcile | nivel=%.2f",
+                                           free_hype, qty, level)
+                            qty = round(free_hype, SZ_DECIMALS)
+
+                        result = self.client.limit_sell(ASSET, qty, sell_px)
                         if result.success:
                             lvl["sell_order_id"] = result.order_id
                             lvl["sell_price"]    = sell_px
                             restored.append(level)
-                            logger.info("Sell restaurado | nivel=%.2f px=%.4f", level, sell_px)
+                            logger.info("Sell restaurado | nivel=%.2f px=%.4f qty=%.4f", level, sell_px, qty)
                         else:
                             errors.append(level)
 
@@ -232,6 +252,9 @@ class GridStrategy:
         lvl["buy_order_id"] = None
         sell_px = round(float(level_str) + LEVEL_SPACING, 2)
         qty     = lvl["qty"]
+
+        # Esperar 2s para que Hyperliquid acredite el saldo tras el fill
+        time.sleep(2)
 
         # Verificar saldo libre antes de colocar la venta
         try:
