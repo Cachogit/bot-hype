@@ -197,6 +197,16 @@ class TelegramNotifier:
         )
         return self.send(text)
 
+    def alert_grid_shutdown(self, cancelled: int) -> bool:
+        text = (
+            f"🔴 *Grid HYPE detenido*\n"
+            f"{'─' * 28}\n"
+            f"Órdenes de compra canceladas: `{cancelled}`\n"
+            f"Bot apagado limpiamente.\n"
+            f"`{datetime.now().strftime('%Y-%m-%d %H:%M')} UTC`"
+        )
+        return self.send(text)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 

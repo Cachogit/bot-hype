@@ -23,6 +23,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="repla
 sys.path.insert(0, ROOT_DIR)
 
 import logging
+import signal
 import threading
 import time
 
@@ -85,11 +86,29 @@ def _build_command_handlers(grid: GridStrategy,
     }
 
 
+def _make_shutdown_handler(client: HyperliquidClient, notifier: TelegramNotifier):
+    def _handler(signum, _frame):
+        sig_name = "SIGTERM" if signum == signal.SIGTERM else "SIGINT"
+        logger.info("Señal %s recibida — iniciando shutdown limpio", sig_name)
+        try:
+            cancelled = client.cancel_all_orders(ASSET)
+            logger.info("Shutdown: %d órdenes canceladas", len(cancelled))
+            notifier.alert_grid_shutdown(cancelled=len(cancelled))
+        except Exception as e:
+            logger.error("Error durante shutdown: %s", e)
+        sys.exit(0)
+    return _handler
+
+
 def main():
     time.sleep(10)  # esperar que Railway termine de levantar el entorno
     client   = HyperliquidClient.from_env()
     notifier = TelegramNotifier.from_env()
     grid     = GridStrategy(client, notifier)
+
+    shutdown = _make_shutdown_handler(client, notifier)
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT,  shutdown)
 
     # ── 1. Reconciliar ────────────────────────────────────────────────────────
     price = client.get_mid_price(ASSET)
