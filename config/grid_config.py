@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
+import os
+
 ASSET         = "HYPE"
 N_LEVELS      = 20
 GRID_LOW      = 38.00
 LEVEL_SPACING = 0.23    # distancia entre niveles en USD
-CAPITAL_USDC     = 50.0     # USDC por nivel  (20 × $50 = $1.000 total)
-MAX_CAPITAL_USDC = 1000.0   # tope de capital total que el bot puede desplegar
+CAPITAL_USDC     = float(os.getenv("CAPITAL_PER_LEVEL", "50.0"))
+MAX_CAPITAL_USDC = float(os.getenv("MAX_CAPITAL_USDC", "1000.0"))
 MAX_AUTO_SHIFTS  = 3        # shifts automáticos permitidos antes de requerir /shift_up manual
 TAKER_FEE        = 0.0005
 MAKER_FEE        = 0.0001
