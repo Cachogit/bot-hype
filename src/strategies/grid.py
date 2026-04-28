@@ -257,7 +257,7 @@ class GridStrategy:
         qty     = lvl["qty"]
 
         # Esperar 2s para que Hyperliquid acredite el saldo tras el fill
-        time.sleep(2)
+        time.sleep(5)
 
         # Verificar saldo libre antes de colocar la venta
         try:
@@ -278,7 +278,7 @@ class GridStrategy:
         if free_hype < qty:
             logger.warning("Saldo libre HYPE %.4f < qty %.4f — ajustando sell a saldo disponible | nivel=%s",
                            free_hype, qty, level_str)
-            qty = round(free_hype, SZ_DECIMALS)
+            qty = round(free_hype * 0.999, SZ_DECIMALS)
 
         result  = self.client.limit_sell(ASSET, qty, sell_px)
 
