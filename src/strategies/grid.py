@@ -256,43 +256,54 @@ class GridStrategy:
         sell_px = round(float(level_str) + LEVEL_SPACING, 2)
         qty     = lvl["qty"]
 
-        # Esperar 2s para que Hyperliquid acredite el saldo tras el fill
-        time.sleep(5)
+        result = None
+        for attempt in range(1, 4):
+            time.sleep(5)  # esperar que Hyperliquid acredite el saldo
 
-        # Verificar saldo libre antes de colocar la venta
-        try:
-            balances  = self.client.get_spot_balance(ASSET)
-            free_hype = balances[0].available if balances else 0.0
-        except Exception as e:
-            logger.error("No se pudo consultar saldo HYPE: %s — nivel=%s queda en WAITING_SELL", e, level_str)
-            lvl["status"] = WAITING_SELL
-            _save_state(self.state)
-            return
+            try:
+                balances  = self.client.get_spot_balance(ASSET)
+                free_hype = balances[0].available if balances else 0.0
+            except Exception as e:
+                logger.error("Intento %d/3 — no se pudo consultar saldo HYPE: %s | nivel=%s",
+                             attempt, e, level_str)
+                continue
 
-        if free_hype <= 0:
-            logger.error("Saldo libre HYPE=0 — no se coloca sell | nivel=%s qty=%.4f", level_str, qty)
-            lvl["status"] = WAITING_SELL
-            _save_state(self.state)
-            return
+            if free_hype <= 0:
+                logger.warning("Intento %d/3 — saldo libre HYPE=0 | nivel=%s", attempt, level_str)
+                continue
 
-        if free_hype < qty:
-            logger.warning("Saldo libre HYPE %.4f < qty %.4f — ajustando sell a saldo disponible | nivel=%s",
-                           free_hype, qty, level_str)
-            qty = round(free_hype * 0.999, SZ_DECIMALS)
+            sell_qty = qty
+            if free_hype < qty:
+                logger.warning("Intento %d/3 — saldo libre HYPE %.4f < qty %.4f — ajustando | nivel=%s",
+                               attempt, free_hype, qty, level_str)
+                sell_qty = round(free_hype * 0.999, SZ_DECIMALS)
 
-        result  = self.client.limit_sell(ASSET, qty, sell_px)
+            result = self.client.limit_sell(ASSET, sell_qty, sell_px)
 
-        if result.success:
-            lvl.update({
-                "status":        WAITING_SELL,
-                "sell_order_id": result.order_id,
-                "sell_price":    sell_px,
-            })
-            logger.info("Sell colocado | nivel=%s px=%.4f qty=%.4f oid=%s",
-                        level_str, sell_px, qty, result.order_id)
-        else:
+            if result.success:
+                qty = sell_qty
+                lvl.update({
+                    "status":        WAITING_SELL,
+                    "sell_order_id": result.order_id,
+                    "sell_price":    sell_px,
+                })
+                logger.info("Sell colocado (intento %d/3) | nivel=%s px=%.4f qty=%.4f oid=%s",
+                            attempt, level_str, sell_px, qty, result.order_id)
+                break
+
+            # Salir del loop solo si el error no es por saldo insuficiente
+            err = str(result.raw).lower()
+            if "insufficient" in err and "balance" in err:
+                logger.warning("Intento %d/3 — Insufficient balance, reintentando | nivel=%s",
+                               attempt, level_str)
+            else:
+                logger.error("Intento %d/3 — error no recuperable: %s | nivel=%s",
+                             attempt, result.status, level_str)
+                break
+
+        if result is None or not result.success:
             lvl["status"] = WAITING_SELL   # sin sell_order_id; reconcile lo repondrá
-            logger.error("No se pudo colocar sell en nivel=%s: %s", level_str, result.status)
+            logger.error("Sell fallido tras 3 intentos | nivel=%s", level_str)
 
         _save_state(self.state)
         self.notifier.alert_grid_buy(
