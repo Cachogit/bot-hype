@@ -1,0 +1,2 @@
+[deploy]
+startCommand = "python src/grid_monitor.py"
