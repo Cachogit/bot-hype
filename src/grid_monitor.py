@@ -78,11 +78,22 @@ def _build_command_handlers(grid: GridStrategy,
         price = client.get_mid_price(ASSET)
         grid.reactivar(price)
 
+    def cmd_reset_grid(_args):
+        price = client.get_mid_price(ASSET)
+        result = grid.reset_grid(price)
+        notifier.send(
+            f"🔄 *Grid reseteada*\n"
+            f"Niveles a IDLE, PnL en $0\n"
+            f"Órdenes colocadas: `{len(result['placed'])}`\n"
+            f"Precio actual: `${price:.4f}`"
+        )
+
     return {
         "/status":     cmd_status,
         "/shift_down": cmd_shift_down,
         "/shift_up":   cmd_shift_up,
         "/reactivar":  cmd_reactivar,
+        "/reset_grid": cmd_reset_grid,
     }
 
 

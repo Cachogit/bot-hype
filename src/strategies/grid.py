@@ -418,7 +418,20 @@ class GridStrategy:
         self.notifier.alert_grid_reactivated(price)
         self.reconcile(price)
 
-    # ── Comandos: /reactivar, /shift_down, /shift_up ─────────────────────────
+    # ── Comandos: /reactivar, /shift_down, /shift_up, /reset_grid ───────────
+
+    def reset_grid(self, current_price: float) -> dict:
+        """Limpia todo el estado y recoloca órdenes desde cero."""
+        with self._lock:
+            self.state["levels"]             = {str(lvl): _empty_level() for lvl in LEVELS}
+            self.state["completed_cycles"]   = []
+            self.state["total_realized_pnl"] = 0.0
+            self.state["paused"]             = False
+            self.state["pause_reason"]       = None
+            self.state["auto_shift_count"]   = 0
+            _save_state(self.state)
+        logger.info("Grid reseteada — todos los niveles a IDLE, PnL en 0")
+        return self.reconcile(current_price)
 
     def reactivar(self, current_price: float) -> dict:
         with self._lock:
