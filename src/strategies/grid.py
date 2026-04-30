@@ -49,7 +49,10 @@ def _empty_level() -> dict:
 def _load_state() -> dict:
     if STATE_FILE.exists():
         try:
-            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            state["grid_low"]  = GRID_LOW
+            state["grid_high"] = GRID_HIGH
+            return state
         except Exception as e:
             logger.warning("grid_state.json inválido: %s — empezando limpio", e)
     levels = {str(lvl): _empty_level() for lvl in LEVELS}
