@@ -3,7 +3,7 @@ import os
 
 ASSET         = "HYPE"
 N_LEVELS      = 15
-GRID_LOW      = 36.39
+GRID_LOW      = 36.85
 LEVEL_SPACING = 0.23    # distancia entre niveles en USD
 CAPITAL_USDC     = float(os.getenv("CAPITAL_PER_LEVEL", "266.0"))
 MAX_CAPITAL_USDC = float(os.getenv("MAX_CAPITAL_USDC", "4000.0"))
