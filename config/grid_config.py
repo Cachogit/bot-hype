@@ -2,10 +2,10 @@
 import os
 
 ASSET         = "HYPE"
-N_LEVELS      = 20
+N_LEVELS      = 15
 GRID_LOW      = 38.00
 LEVEL_SPACING = 0.23    # distancia entre niveles en USD
-CAPITAL_USDC     = float(os.getenv("CAPITAL_PER_LEVEL", "200.0"))
+CAPITAL_USDC     = float(os.getenv("CAPITAL_PER_LEVEL", "266.0"))
 MAX_CAPITAL_USDC = float(os.getenv("MAX_CAPITAL_USDC", "4000.0"))
 MAX_AUTO_SHIFTS  = 3        # shifts automáticos permitidos antes de requerir /shift_up manual
 TAKER_FEE        = 0.0005
