@@ -21,7 +21,10 @@ from typing import Optional
 from config.grid_config import (
     ASSET, CAPITAL_USDC, MAX_CAPITAL_USDC, MAKER_FEE,
     LEVEL_SPACING, LEVELS, GRID_LOW, GRID_HIGH, SZ_DECIMALS, MAX_AUTO_SHIFTS,
+    N_LEVELS,
 )
+
+N_SHIFT_LEVELS = N_LEVELS
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +33,6 @@ STATE_FILE = Path(__file__).parent.parent.parent / "data" / "grid_state.json"
 IDLE         = "IDLE"
 WAITING_BUY  = "WAITING_BUY"
 WAITING_SELL = "WAITING_SELL"
-
-N_SHIFT_LEVELS = N_LEVELS
 
 
 def _empty_level() -> dict:
