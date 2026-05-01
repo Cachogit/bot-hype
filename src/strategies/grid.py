@@ -31,7 +31,7 @@ IDLE         = "IDLE"
 WAITING_BUY  = "WAITING_BUY"
 WAITING_SELL = "WAITING_SELL"
 
-N_SHIFT_LEVELS = 20   # niveles totales al hacer shift
+N_SHIFT_LEVELS = N_LEVELS
 
 
 def _empty_level() -> dict:
@@ -470,9 +470,9 @@ class GridStrategy:
         logger.info("Shift %s: canceladas %d órdenes (auto=%s)", direction, len(cancelled), is_auto)
 
         # 2. Calcular nuevo rango: high justo bajo el precio, low = high - rango completo
-        new_high        = round(current_price * 0.995, 2)
-        new_low         = round(new_high - (N_SHIFT_LEVELS * LEVEL_SPACING), 2)
-        new_levels_list = [round(new_low + i * LEVEL_SPACING, 2) for i in range(N_SHIFT_LEVELS)]
+        new_high        = round(current_price - LEVEL_SPACING, 2)
+        new_low         = round(new_high - (N_LEVELS - 1) * LEVEL_SPACING, 2)
+        new_levels_list = [round(new_low + i * LEVEL_SPACING, 2) for i in range(N_LEVELS)]
 
         with self._lock:
             old_levels = self.state["levels"]
