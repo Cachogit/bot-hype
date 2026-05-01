@@ -424,7 +424,12 @@ class GridStrategy:
     def reset_grid(self, current_price: float) -> dict:
         """Limpia todo el estado y recoloca órdenes desde cero."""
         with self._lock:
-            self.state["levels"]             = {str(lvl): _empty_level() for lvl in LEVELS}
+            new_high        = round(current_price - LEVEL_SPACING, 2)
+            new_low         = round(new_high - (N_LEVELS - 1) * LEVEL_SPACING, 2)
+            new_levels_list = [round(new_low + i * LEVEL_SPACING, 2) for i in range(N_LEVELS)]
+            self.state["grid_low"]  = new_low
+            self.state["grid_high"] = new_high
+            self.state["levels"]    = {str(lvl): _empty_level() for lvl in new_levels_list}
             self.state["completed_cycles"]   = []
             self.state["total_realized_pnl"] = 0.0
             self.state["paused"]             = False
