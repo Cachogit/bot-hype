@@ -262,7 +262,7 @@ class HyperliquidClient:
             is_buy=True,
             sz=qty,
             limit_px=price,
-            order_type={"limit": {"tif": "Gtc"}},
+            order_type={"limit": {"tif": "Alo"}},
         )
         logger.info("RAW response limit_buy: %s", resp)
         return self._parse_order_response(resp)
@@ -274,7 +274,7 @@ class HyperliquidClient:
             is_buy=False,
             sz=qty,
             limit_px=price,
-            order_type={"limit": {"tif": "Gtc"}},
+            order_type={"limit": {"tif": "Alo"}},
         )
         return self._parse_order_response(resp)
 
