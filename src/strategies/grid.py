@@ -364,15 +364,16 @@ class GridStrategy:
                 self._pause(price)
             self._above_range_alerted = False
         elif price > self.grid_high:
-            # Por encima del techo: solo alerta, bot sigue activo
+            # Por encima del techo: shift automático hacia arriba
             if self.paused and self.state.get("pause_reason") == "out_of_range":
                 self._auto_reactivate(price)
-            threshold = self.grid_high * 1.015
-            if price > threshold and not self._above_range_alerted:
-                self._alert_above_range(price)
+            if not self._above_range_alerted:
                 self._above_range_alerted = True
-            elif price <= threshold:
-                self._above_range_alerted = False
+                logger.info("Precio $%.4f superó techo $%.2f — auto shift up", price, self.grid_high)
+                result = self.shift("up", price, is_auto=True)
+                if not result:
+                    # shift bloqueado por MAX_AUTO_SHIFTS — solo alerta
+                    self._alert_above_range(price)
         else:
             # Dentro del rango
             self._above_range_alerted = False
