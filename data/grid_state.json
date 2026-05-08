@@ -1,0 +1,190 @@
+{
+  "grid_low": 40.25,
+  "grid_high": 44.62,
+  "levels": {
+    "40.25": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "40.48": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "40.71": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "40.94": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "41.17": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "41.4": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "41.63": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "41.86": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "42.09": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "42.32": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "42.55": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "42.78": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "43.01": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "43.24": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "43.47": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "43.7": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "43.93": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "44.16": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "44.39": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    },
+    "44.62": {
+      "status": "IDLE",
+      "buy_order_id": null,
+      "sell_order_id": null,
+      "buy_price": null,
+      "sell_price": null,
+      "qty": 0.0,
+      "expected_qty": 0.0
+    }
+  },
+  "completed_cycles": [],
+  "total_realized_pnl": 0.0,
+  "paused": false,
+  "pause_reason": null
+}
