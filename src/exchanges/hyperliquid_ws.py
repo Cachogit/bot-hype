@@ -111,6 +111,20 @@ class HyperliquidWS:
         except Exception as e:
             logger.error("Error en on_price: %s | price=%s", e, price)
 
+    # ── Cierre limpio ────────────────────────────────────────────────────────
+
+    def _close(self):
+        try:
+            if self._info is not None:
+                ws_mgr = getattr(self._info, "ws_manager", None)
+                if ws_mgr is not None:
+                    ws_mgr.stop()
+                    logger.info("WS cerrado limpiamente")
+        except Exception as e:
+            logger.warning("Error cerrando WS anterior: %s", e)
+        finally:
+            self._info = None
+
     # ── Loop principal con reconexión ─────────────────────────────────────────
 
     def run_forever(self):
@@ -122,13 +136,13 @@ class HyperliquidWS:
         """
         delay = _RECONNECT_BASE
         while True:
+            self._close()  # siempre cerrar la conexión anterior antes de reconectar
             try:
                 self.connect()
                 ws_mgr = getattr(self._info, "ws_manager", None)
                 if ws_mgr is None:
                     raise RuntimeError("ws_manager no disponible en Info — verificar versión del SDK")
                 logger.info("WS daemon corriendo (hilo=%s)", ws_mgr.name)
-                # Monitorear que el hilo daemon siga vivo
                 delay = _RECONNECT_BASE  # reset tras conexión exitosa
                 while ws_mgr.is_alive():
                     time.sleep(5)
