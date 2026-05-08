@@ -363,16 +363,24 @@ class GridStrategy:
             if not self.paused:
                 self._pause(price)
             self._above_range_alerted = False
-        elif price > self.grid_high:
+            elif price > self.grid_high:
             # Por encima del techo: shift automático hacia arriba
             if self.paused and self.state.get("pause_reason") == "out_of_range":
                 self._auto_reactivate(price)
+            has_pending_sell = any(
+                lvl["status"] == WAITING_SELL
+                for lvl in self.state["levels"].values()
+            )
+            if has_pending_sell:
+                if not self._above_range_alerted:
+                    self._above_range_alerted = True
+                    self._alert_above_range(price)
+                return
             if not self._above_range_alerted:
                 self._above_range_alerted = True
                 logger.info("Precio $%.4f superó techo $%.2f — auto shift up", price, self.grid_high)
                 result = self.shift("up", price, is_auto=True)
                 if not result:
-                    # shift bloqueado por MAX_AUTO_SHIFTS — solo alerta
                     self._alert_above_range(price)
         else:
             # Dentro del rango
@@ -473,7 +481,7 @@ class GridStrategy:
             self.state["auto_shift_count"] = 0   # reset al hacer shift manual
 
         # 1. Cancelar todas las órdenes abiertas de HYPE
-        cancelled = self.client.cancel_all_orders(ASSET)
+        cancelled = self.client.cancel_all_orders(ASSET, side="B")
         logger.info("Shift %s: canceladas %d órdenes (auto=%s)", direction, len(cancelled), is_auto)
 
         # 2. Calcular nuevo rango: high justo bajo el precio, low = high - rango completo
