@@ -363,7 +363,7 @@ class GridStrategy:
             if not self.paused:
                 self._pause(price)
             self._above_range_alerted = False
-            elif price > self.grid_high:
+        elif price > self.grid_high:
             # Por encima del techo: shift automático hacia arriba
             if self.paused and self.state.get("pause_reason") == "out_of_range":
                 self._auto_reactivate(price)
