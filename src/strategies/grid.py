@@ -115,6 +115,9 @@ class GridStrategy:
             self.state["grid_low"]  = new_levels[0]
             self.state["grid_high"] = new_levels[-1]
             _save_state(self.state)
+            # El precio actual ya está sobre grid_high por diseño (0.3% abajo del precio).
+            # Marcar como alertado para evitar un shift fantasma en el primer tick.
+            self._above_range_alerted = True
             logger.info("Grilla inicializada desde $%.4f | rango [%.4f - %.4f]",
                         current_price, new_levels[0], new_levels[-1])
 
