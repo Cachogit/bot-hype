@@ -83,6 +83,7 @@ class GridStrategy:
         self._lock    = threading.Lock()
         self.state    = _load_state()
         self._above_range_alerted = False
+        self._last_shift_price    = 0.0
 
     # ── Propiedades runtime ───────────────────────────────────────────────────
 
@@ -379,16 +380,23 @@ class GridStrategy:
                     self._alert_above_range(price)
                 return
             if not self._above_range_alerted:
+                # Shifts consecutivos: exigir que el precio suba al menos LEVEL_SPACING_PCT
+                # desde el último shift antes de volver a shiftear
+                if (self._last_shift_price > 0 and
+                        price < self._last_shift_price * (1 + LEVEL_SPACING_PCT)):
+                    return
                 self._above_range_alerted = True
                 logger.info("Precio $%.4f superó techo $%.2f — auto shift up", price, self.grid_high)
                 result = self.shift("up", price, is_auto=True)
                 if result:
+                    self._last_shift_price = price
                     self._above_range_alerted = False  # permitir nuevo shift si el precio sigue subiendo
                 else:
                     self._alert_above_range(price)
         else:
-            # Dentro del rango
+            # Dentro del rango: resetear para permitir shift libre la próxima vez
             self._above_range_alerted = False
+            self._last_shift_price    = 0.0
             if self.paused and self.state.get("pause_reason") == "out_of_range":
                 self._auto_reactivate(price)
 
