@@ -345,6 +345,9 @@ class GridStrategy:
         if not self.paused:
             self._place_buy(level_str, level)
 
+        # Permitir que on_price() re-evalúe si el precio sigue fuera del rango
+        self._above_range_alerted = False
+
         _save_state(self.state)
         self.notifier.alert_grid_sell(
             level=level, buy_price=buy_price, sell_price=px,
