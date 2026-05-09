@@ -384,7 +384,9 @@ class GridStrategy:
                 self._above_range_alerted = True
                 logger.info("Precio $%.4f superó techo $%.2f — auto shift up", price, self.grid_high)
                 result = self.shift("up", price, is_auto=True)
-                if not result:
+                if result:
+                    self._above_range_alerted = False  # permitir nuevo shift si el precio sigue subiendo
+                else:
                     self._alert_above_range(price)
         else:
             # Dentro del rango
