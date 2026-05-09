@@ -1,20 +1,25 @@
 # -*- coding: utf-8 -*-
 import os
 
-ASSET         = "HYPE"
-N_LEVELS      = 10
-GRID_LOW      = 36.42
-LEVEL_SPACING = 0.23    # distancia entre niveles en USD
-CAPITAL_USDC     = float(os.getenv("CAPITAL_PER_LEVEL", "550.0"))
-MAX_CAPITAL_USDC = float(os.getenv("MAX_CAPITAL_USDC", "5500.0"))
-MAX_AUTO_SHIFTS  = 3        # shifts automáticos permitidos antes de requerir /shift_up manual
-TAKER_FEE        = 0.0005
-MAKER_FEE        = 0.0001
-SZ_DECIMALS      = 2        # decimales permitidos para qty en HYPE spot (szDecimals=2)
+ASSET             = "HYPE"
+N_LEVELS          = 6
+FIRST_LEVEL_PCT   = 0.003   # primer nivel a 0.3% bajo el precio de referencia
+LEVEL_SPACING_PCT = 0.006   # separación de 0.6% entre niveles siguientes
+CAPITAL_USDC      = float(os.getenv("CAPITAL_PER_LEVEL", "900.0"))
+MAX_CAPITAL_USDC  = float(os.getenv("MAX_CAPITAL_USDC",  "5400.0"))
+MAX_AUTO_SHIFTS   = 3
+TAKER_FEE         = 0.0005
+MAKER_FEE         = 0.0001
+SZ_DECIMALS       = 2
 
-# Venta siempre en el nivel siguiente: nivel_compra + LEVEL_SPACING
-# (no hay porcentaje fijo — el target es determinista y alineado a la grilla)
 
-GRID_HIGH = round(GRID_LOW + (N_LEVELS - 1) * LEVEL_SPACING, 2)
-
-LEVELS = [round(GRID_LOW + i * LEVEL_SPACING, 2) for i in range(N_LEVELS)]
+def calc_levels(ref_price: float) -> list:
+    """Calcula N_LEVELS precios de compra bajo ref_price.
+    Primer nivel a FIRST_LEVEL_PCT bajo el precio; los siguientes
+    separados LEVEL_SPACING_PCT entre sí. Retorna lista de menor a mayor.
+    """
+    first = round(ref_price * (1 - FIRST_LEVEL_PCT), 2)
+    levels = [first]
+    for _ in range(N_LEVELS - 1):
+        levels.append(round(levels[-1] * (1 - LEVEL_SPACING_PCT), 2))
+    return sorted(levels)

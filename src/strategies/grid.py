@@ -20,8 +20,8 @@ from typing import Optional
 
 from config.grid_config import (
     ASSET, CAPITAL_USDC, MAX_CAPITAL_USDC, MAKER_FEE,
-    LEVEL_SPACING, LEVELS, GRID_LOW, GRID_HIGH, SZ_DECIMALS, MAX_AUTO_SHIFTS,
-    N_LEVELS,
+    LEVEL_SPACING_PCT, SZ_DECIMALS, MAX_AUTO_SHIFTS, N_LEVELS,
+    calc_levels,
 )
 
 N_SHIFT_LEVELS = N_LEVELS
@@ -50,17 +50,13 @@ def _empty_level() -> dict:
 def _load_state() -> dict:
     if STATE_FILE.exists():
         try:
-            state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-            state["grid_low"]  = GRID_LOW
-            state["grid_high"] = GRID_HIGH
-            return state
+            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
         except Exception as e:
             logger.warning("grid_state.json inválido: %s — empezando limpio", e)
-    levels = {str(lvl): _empty_level() for lvl in LEVELS}
     return {
-        "grid_low":           GRID_LOW,
-        "grid_high":          GRID_HIGH,
-        "levels":             levels,
+        "grid_low":           0.0,
+        "grid_high":          0.0,
+        "levels":             {},  # se inicializa en reconcile() con el precio actual
         "completed_cycles":   [],
         "total_realized_pnl": 0.0,
         "paused":             False,
@@ -88,13 +84,6 @@ class GridStrategy:
         self.state    = _load_state()
         self._above_range_alerted = False
 
-        # Sincronizar niveles configurados vs state persistido
-        for lvl in LEVELS:
-            key = str(lvl)
-            if key not in self.state["levels"]:
-                self.state["levels"][key] = _empty_level()
-        _save_state(self.state)
-
     # ── Propiedades runtime ───────────────────────────────────────────────────
 
     @property
@@ -103,11 +92,11 @@ class GridStrategy:
 
     @property
     def grid_low(self) -> float:
-        return float(self.state.get("grid_low", GRID_LOW))
+        return float(self.state.get("grid_low", 0.0))
 
     @property
     def grid_high(self) -> float:
-        return float(self.state.get("grid_high", GRID_HIGH))
+        return float(self.state.get("grid_high", 0.0))
 
     # ── Startup: reconciliación ───────────────────────────────────────────────
 
@@ -120,6 +109,15 @@ class GridStrategy:
 
     def reconcile(self, current_price: float) -> dict:
         """Compara state vs órdenes reales en Hyperliquid; coloca las faltantes."""
+        if not self.state.get("levels"):
+            new_levels = calc_levels(current_price)
+            self.state["levels"]    = {str(lvl): _empty_level() for lvl in new_levels}
+            self.state["grid_low"]  = new_levels[0]
+            self.state["grid_high"] = new_levels[-1]
+            _save_state(self.state)
+            logger.info("Grilla inicializada desde $%.4f | rango [%.4f - %.4f]",
+                        current_price, new_levels[0], new_levels[-1])
+
         with self._lock:
             cancelled = self.client.cancel_all_orders(ASSET, side="B")
             if cancelled:
@@ -171,7 +169,7 @@ class GridStrategy:
                 elif status == WAITING_SELL:
                     oid = lvl.get("sell_order_id")
                     if not oid or oid not in open_oids:
-                        sell_px = round(level + LEVEL_SPACING, 2)
+                        sell_px = round(level * (1 + LEVEL_SPACING_PCT), 2)
                         qty     = lvl.get("qty") or round(CAPITAL_USDC / level, SZ_DECIMALS)
 
                         try:
@@ -255,9 +253,9 @@ class GridStrategy:
             logger.info("Fill parcial buy | nivel=%s qty=%.4f/%.4f", level_str, lvl["qty"], expected)
             return
 
-        # Fill completo → colocar venta en el nivel siguiente
+        # Fill completo → colocar venta 0.6% por encima del nivel de compra
         lvl["buy_order_id"] = None
-        sell_px = round(float(level_str) + LEVEL_SPACING, 2)
+        sell_px = round(float(level_str) * (1 + LEVEL_SPACING_PCT), 2)
         qty     = lvl["qty"]
 
         result = None
@@ -433,9 +431,9 @@ class GridStrategy:
     def reset_grid(self, current_price: float) -> dict:
         """Limpia todo el estado y recoloca órdenes desde cero."""
         with self._lock:
-            new_high        = round(current_price - LEVEL_SPACING, 2)
-            new_low         = round(new_high - (N_LEVELS - 1) * LEVEL_SPACING, 2)
-            new_levels_list = [round(new_low + i * LEVEL_SPACING, 2) for i in range(N_LEVELS)]
+            new_levels_list = calc_levels(current_price)
+            new_low         = new_levels_list[0]
+            new_high        = new_levels_list[-1]
             self.state["grid_low"]  = new_low
             self.state["grid_high"] = new_high
             self.state["levels"]    = {str(lvl): _empty_level() for lvl in new_levels_list}
@@ -484,10 +482,10 @@ class GridStrategy:
         cancelled = self.client.cancel_all_orders(ASSET, side="B")
         logger.info("Shift %s: canceladas %d órdenes (auto=%s)", direction, len(cancelled), is_auto)
 
-        # 2. Calcular nuevo rango: high justo bajo el precio, low = high - rango completo
-        new_high        = round(current_price - LEVEL_SPACING, 2)
-        new_low         = round(new_high - (N_LEVELS - 1) * LEVEL_SPACING, 2)
-        new_levels_list = [round(new_low + i * LEVEL_SPACING, 2) for i in range(N_LEVELS)]
+        # 2. Calcular nuevo rango porcentual desde el precio actual
+        new_levels_list = calc_levels(current_price)
+        new_low         = new_levels_list[0]
+        new_high        = new_levels_list[-1]
 
         with self._lock:
             old_levels = self.state["levels"]

@@ -34,7 +34,7 @@ from src.exchanges.hyperliquid_client import HyperliquidClient
 from src.exchanges.hyperliquid_ws import HyperliquidWS
 from src.notifier.telegram import TelegramNotifier, TelegramCommandPoller
 from src.strategies.grid import GridStrategy
-from config.grid_config import ASSET, GRID_LOW, GRID_HIGH
+from config.grid_config import ASSET
 
 logging.basicConfig(
     level=logging.INFO,
