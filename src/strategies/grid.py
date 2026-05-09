@@ -490,7 +490,7 @@ class GridStrategy:
         with self._lock:
             old_levels = self.state["levels"]
 
-            # Preservar WAITING_SELL (HYPE ya comprado, venta pendiente)
+            # Nuevos niveles IDLE (o WAITING_SELL si coincide exactamente con el nuevo rango)
             new_levels_dict = {}
             for lvl in new_levels_list:
                 key = str(lvl)
@@ -498,6 +498,11 @@ class GridStrategy:
                     new_levels_dict[key] = old_levels[key]
                 else:
                     new_levels_dict[key] = _empty_level()
+
+            # Preservar ventas pendientes que no caen en el nuevo rango para que el fill se registre
+            for key, data in old_levels.items():
+                if data["status"] == WAITING_SELL and key not in new_levels_dict:
+                    new_levels_dict[key] = data
 
             self.state.update({
                 "grid_low":    new_low,
