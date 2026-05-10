@@ -155,7 +155,7 @@ class GridStrategy:
                 level  = float(level_str)
                 status = lvl["status"]
 
-                if level >= current_price:
+                if level >= current_price and status != WAITING_SELL:
                     # Por encima del precio: no colocar compras
                     if status == WAITING_BUY:
                         oid = lvl.get("buy_order_id")
