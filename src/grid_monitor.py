@@ -106,26 +106,32 @@ def _build_command_handlers(grid: GridStrategy,
             notifier.send("📊 *PnL Historial*\nAún no hay ciclos completados.")
             return
 
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        total_pnl   = sum(e["pnl_net"] for e in history)
+        now = datetime.now(timezone.utc)
+
+        def pnl_since(days):
+            cutoff = now.timestamp() - days * 86400
+            entries = [
+                e for e in history
+                if datetime.strptime(e["timestamp"], "%Y-%m-%dT%H:%M:%SZ")
+                   .replace(tzinfo=timezone.utc).timestamp() >= cutoff
+            ]
+            return sum(e["pnl_net"] for e in entries), len(entries)
+
+        total_pnl    = round(sum(e["pnl_net"] for e in history), 2)
         total_ciclos = len(history)
-        mejor_ciclo = max(e["pnl_net"] for e in history)
-        peor_ciclo  = min(e["pnl_net"] for e in history)
-        hoy_entries = [e for e in history if e.get("timestamp", "").startswith(today)]
-        hoy_pnl     = sum(e["pnl_net"] for e in hoy_entries)
-        hoy_ciclos  = len(hoy_entries)
+        pnl_7d,  ciclos_7d  = pnl_since(7)
+        pnl_30d, ciclos_30d = pnl_since(30)
 
         notifier.send(
             f"📊 *PnL Historial*\n"
             f"─────────────────\n"
-            f"Ciclos totales: `{total_ciclos}`\n"
-            f"Ganancia total: `${total_pnl:.2f}`\n"
-            f"Mejor ciclo:    `${mejor_ciclo:.2f}`\n"
-            f"Peor ciclo:     `${peor_ciclo:.2f}`\n"
+            f"Total acumulado: `${total_pnl:.2f}`\n"
+            f"Ciclos totales:  `{total_ciclos}`\n"
             f"─────────────────\n"
-            f"Hoy ({today}):\n"
-            f"  Ciclos: `{hoy_ciclos}`\n"
-            f"  Ganancia: `${hoy_pnl:.2f}`"
+            f"Últimos 7 días:\n"
+            f"  Ganancia: `${pnl_7d:.2f}` | Ciclos: `{ciclos_7d}`\n"
+            f"Últimos 30 días:\n"
+            f"  Ganancia: `${pnl_30d:.2f}` | Ciclos: `{ciclos_30d}`"
         )
 
     return {
