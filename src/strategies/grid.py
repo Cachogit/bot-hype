@@ -405,9 +405,7 @@ class GridStrategy:
                 for lvl in self.state["levels"].values()
             )
             if has_pending_sell:
-                if not self._above_range_alerted:
-                    self._above_range_alerted = True
-                    self._alert_above_range(price)
+                self._above_range_alerted = True
                 return
             if not self._above_range_alerted:
                 # Shifts consecutivos: exigir que el precio suba al menos LEVEL_SPACING_PCT
