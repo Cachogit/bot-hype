@@ -22,10 +22,13 @@ os.makedirs(os.path.join(ROOT_DIR, "data"), exist_ok=True)
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.path.insert(0, ROOT_DIR)
 
+import json
 import logging
 import signal
 import threading
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -88,12 +91,50 @@ def _build_command_handlers(grid: GridStrategy,
             f"Precio actual: `${price:.4f}`"
         )
 
+    def cmd_pnl(_args):
+        pnl_file = Path(ROOT_DIR) / "data" / "pnl_history.json"
+        if not pnl_file.exists():
+            notifier.send("📊 *PnL Historial*\nAún no hay ciclos completados.")
+            return
+        try:
+            history = json.loads(pnl_file.read_text(encoding="utf-8"))
+        except Exception:
+            notifier.send("Error leyendo historial de PnL.")
+            return
+
+        if not history:
+            notifier.send("📊 *PnL Historial*\nAún no hay ciclos completados.")
+            return
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        total_pnl   = sum(e["pnl_net"] for e in history)
+        total_ciclos = len(history)
+        mejor_ciclo = max(e["pnl_net"] for e in history)
+        peor_ciclo  = min(e["pnl_net"] for e in history)
+        hoy_entries = [e for e in history if e.get("timestamp", "").startswith(today)]
+        hoy_pnl     = sum(e["pnl_net"] for e in hoy_entries)
+        hoy_ciclos  = len(hoy_entries)
+
+        notifier.send(
+            f"📊 *PnL Historial*\n"
+            f"─────────────────\n"
+            f"Ciclos totales: `{total_ciclos}`\n"
+            f"Ganancia total: `${total_pnl:.2f}`\n"
+            f"Mejor ciclo:    `${mejor_ciclo:.2f}`\n"
+            f"Peor ciclo:     `${peor_ciclo:.2f}`\n"
+            f"─────────────────\n"
+            f"Hoy ({today}):\n"
+            f"  Ciclos: `{hoy_ciclos}`\n"
+            f"  Ganancia: `${hoy_pnl:.2f}`"
+        )
+
     return {
         "/status":     cmd_status,
         "/shift_down": cmd_shift_down,
         "/shift_up":   cmd_shift_up,
         "/reactivar":  cmd_reactivar,
         "/reset_grid": cmd_reset_grid,
+        "/pnl":        cmd_pnl,
     }
 
 
