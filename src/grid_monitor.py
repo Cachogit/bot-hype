@@ -146,9 +146,8 @@ def _build_command_handlers(grid: GridStrategy,
     }
 
 
-REBALANCE_FILE    = Path(ROOT_DIR) / "data" / "last_rebalance.json"
-REBALANCE_DAYS    = 7
-REBALANCE_RESERVE = 0.95   # usar 95% del USDC disponible
+REBALANCE_FILE = Path(ROOT_DIR) / "data" / "last_rebalance.json"
+REBALANCE_DAYS = 7
 
 
 def _weekly_rebalance_loop(grid, client, notifier):
@@ -172,7 +171,7 @@ def _weekly_rebalance_loop(grid, client, notifier):
             continue
 
         usdc        = client.get_usdc_balance()
-        new_capital = math.floor((usdc * REBALANCE_RESERVE) / N_LEVELS)
+        new_capital = math.floor(usdc / N_LEVELS)
         old_capital = grid.state["capital_per_level"]
 
         if new_capital <= old_capital:
