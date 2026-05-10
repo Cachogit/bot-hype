@@ -28,7 +28,8 @@ N_SHIFT_LEVELS = N_LEVELS
 
 logger = logging.getLogger(__name__)
 
-STATE_FILE = Path(__file__).parent.parent.parent / "data" / "grid_state.json"
+STATE_FILE       = Path(__file__).parent.parent.parent / "data" / "grid_state.json"
+PNL_HISTORY_FILE = Path(__file__).parent.parent.parent / "data" / "pnl_history.json"
 
 IDLE         = "IDLE"
 WAITING_BUY  = "WAITING_BUY"
@@ -70,6 +71,21 @@ def _save_state(state: dict):
         json.dumps(state, indent=2, default=str),
         encoding="utf-8",
     )
+
+
+def _append_pnl_history(entry: dict):
+    try:
+        if PNL_HISTORY_FILE.exists():
+            history = json.loads(PNL_HISTORY_FILE.read_text(encoding="utf-8"))
+        else:
+            history = []
+        history.append(entry)
+        PNL_HISTORY_FILE.write_text(
+            json.dumps(history, indent=2, default=str),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        logger.error("Error guardando pnl_history: %s", e)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -329,14 +345,16 @@ class GridStrategy:
         sell_fee = qty * px * MAKER_FEE
         pnl_net  = gross - buy_fee - sell_fee
 
-        self.state["completed_cycles"].append({
-            "level":        level,
-            "buy_price":    buy_price,
-            "sell_price":   px,
-            "qty":          qty,
-            "pnl_net":      round(pnl_net, 4),
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-        })
+        cycle = {
+            "timestamp":  datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "level":      level,
+            "buy_price":  buy_price,
+            "sell_price": round(px, 4),
+            "qty":        qty,
+            "pnl_net":    round(pnl_net, 4),
+        }
+        self.state["completed_cycles"].append({**cycle, "completed_at": cycle["timestamp"]})
+        _append_pnl_history(cycle)
         self.state["total_realized_pnl"] = round(
             self.state["total_realized_pnl"] + pnl_net, 4
         )
@@ -346,9 +364,15 @@ class GridStrategy:
         if not self.paused:
             self._place_buy(level_str, level)
 
-        # Ciclo completo: resetear contador de auto-shifts y flag de rango
+        # Resetear contador siempre; el flag solo cuando no quedan más ventas pendientes
         self.state["auto_shift_count"] = 0
-        self._above_range_alerted = False
+        still_selling = any(
+            lvl["status"] == WAITING_SELL
+            for k, lvl in self.state["levels"].items()
+            if k != level_str
+        )
+        if not still_selling:
+            self._above_range_alerted = False
 
         _save_state(self.state)
         self.notifier.alert_grid_sell(
