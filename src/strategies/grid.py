@@ -57,12 +57,13 @@ def _load_state() -> dict:
     return {
         "grid_low":           0.0,
         "grid_high":          0.0,
-        "levels":             {},  # se inicializa en reconcile() con el precio actual
+        "levels":             {},
         "completed_cycles":   [],
         "total_realized_pnl": 0.0,
         "paused":             False,
         "pause_reason":       None,
         "auto_shift_count":   0,
+        "capital_per_level":  CAPITAL_USDC,
     }
 
 
@@ -98,6 +99,8 @@ class GridStrategy:
         self.notifier = notifier
         self._lock    = threading.Lock()
         self.state    = _load_state()
+        if "capital_per_level" not in self.state:
+            self.state["capital_per_level"] = CAPITAL_USDC
         self._above_range_alerted = False
         self._last_shift_price    = 0.0
 
@@ -118,9 +121,9 @@ class GridStrategy:
     # ── Startup: reconciliación ───────────────────────────────────────────────
 
     def _committed_capital(self) -> float:
-        """Capital total comprometido en órdenes y posiciones abiertas."""
+        cap = self.state["capital_per_level"]
         return sum(
-            CAPITAL_USDC for lvl in self.state["levels"].values()
+            cap for lvl in self.state["levels"].values()
             if lvl["status"] != IDLE
         )
 
@@ -160,13 +163,16 @@ class GridStrategy:
                             lvl.update({"status": IDLE, "buy_order_id": None})
                     continue
 
+                cap = self.state["capital_per_level"]
+                max_cap = cap * N_LEVELS
+
                 if status == IDLE:
-                    if committed + CAPITAL_USDC > MAX_CAPITAL_USDC:
+                    if committed + cap > max_cap:
                         skipped.append(level)
                         logger.info("Cap alcanzado (%.0f/%.0f) — saltando nivel %.2f",
-                                    committed, MAX_CAPITAL_USDC, level)
+                                    committed, max_cap, level)
                     elif self._place_buy(level_str, level):
-                        committed += CAPITAL_USDC
+                        committed += cap
                         placed.append(level)
                     else:
                         errors.append(level)
@@ -175,10 +181,10 @@ class GridStrategy:
                     oid = lvl.get("buy_order_id")
                     if not oid or oid not in open_oids:
                         lvl.update({"status": IDLE, "buy_order_id": None})
-                        if committed + CAPITAL_USDC > MAX_CAPITAL_USDC:
+                        if committed + cap > max_cap:
                             skipped.append(level)
                         elif self._place_buy(level_str, level):
-                            committed += CAPITAL_USDC
+                            committed += cap
                             restored.append(level)
                         else:
                             errors.append(level)
@@ -187,7 +193,7 @@ class GridStrategy:
                     oid = lvl.get("sell_order_id")
                     if not oid or oid not in open_oids:
                         sell_px = round(level * (1 + LEVEL_SPACING_PCT), 2)
-                        qty     = lvl.get("qty") or round(CAPITAL_USDC / level, SZ_DECIMALS)
+                        qty     = lvl.get("qty") or round(cap / level, SZ_DECIMALS)
 
                         try:
                             balances  = self.client.get_spot_balance(ASSET)
@@ -221,7 +227,7 @@ class GridStrategy:
                     "errors": errors, "skipped": skipped}
 
     def _place_buy(self, level_str: str, level: float) -> bool:
-        qty    = round(CAPITAL_USDC / level, SZ_DECIMALS)
+        qty    = round(self.state["capital_per_level"] / level, SZ_DECIMALS)
         result = self.client.limit_buy(ASSET, qty, level)
         if result.success:
             lvl = self.state["levels"][level_str]
@@ -562,6 +568,21 @@ class GridStrategy:
             placed=result["placed"],
         )
         return {"new_low": new_low, "new_high": new_high, **result}
+
+    def rebalance_capital(self, new_capital: float, current_price: float):
+        """Actualiza capital por nivel y resetea la grilla."""
+        old_capital = self.state["capital_per_level"]
+        self.state["capital_per_level"] = new_capital
+        logger.info("Rebalanceo capital: $%.0f → $%.0f", old_capital, new_capital)
+        return self.reset_grid(current_price)
+
+    def all_waiting_buy(self) -> bool:
+        """True si todos los niveles tienen orden de compra esperando (ninguno en venta)."""
+        levels = self.state.get("levels", {})
+        return (
+            bool(levels) and
+            all(lvl["status"] == WAITING_BUY for lvl in levels.values())
+        )
 
     # ── Estadísticas ──────────────────────────────────────────────────────────
 

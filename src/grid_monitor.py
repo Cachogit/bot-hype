@@ -30,6 +30,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import math
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -144,6 +146,60 @@ def _build_command_handlers(grid: GridStrategy,
     }
 
 
+REBALANCE_FILE    = Path(ROOT_DIR) / "data" / "last_rebalance.json"
+REBALANCE_DAYS    = 7
+REBALANCE_RESERVE = 0.95   # usar 95% del USDC disponible
+
+
+def _weekly_rebalance_loop(grid, client, notifier):
+    from config.grid_config import N_LEVELS
+    while True:
+        time.sleep(3600)  # verificar cada hora
+
+        # ¿Pasaron 7 días desde el último rebalanceo?
+        if REBALANCE_FILE.exists():
+            try:
+                data      = json.loads(REBALANCE_FILE.read_text(encoding="utf-8"))
+                last_ts   = datetime.fromisoformat(data["last_rebalance"])
+                elapsed   = (datetime.now(timezone.utc) - last_ts).total_seconds()
+                if elapsed < REBALANCE_DAYS * 86400:
+                    continue
+            except Exception:
+                pass
+
+        # ¿Todas las órdenes son de compra esperando? (ninguna venta pendiente)
+        if not grid.all_waiting_buy():
+            continue
+
+        usdc        = client.get_usdc_balance()
+        new_capital = math.floor((usdc * REBALANCE_RESERVE) / N_LEVELS)
+        old_capital = grid.state["capital_per_level"]
+
+        if new_capital <= old_capital:
+            logger.info("Rebalanceo semanal: capital nuevo ($%.0f) no supera actual ($%.0f) — omitido",
+                        new_capital, old_capital)
+            # Guardar igual para no volver a intentar hasta la próxima semana
+            REBALANCE_FILE.write_text(json.dumps({
+                "last_rebalance": datetime.now(timezone.utc).isoformat()
+            }), encoding="utf-8")
+            continue
+
+        price = client.get_mid_price(ASSET)
+        grid.rebalance_capital(new_capital, price)
+
+        REBALANCE_FILE.write_text(json.dumps({
+            "last_rebalance": datetime.now(timezone.utc).isoformat()
+        }), encoding="utf-8")
+
+        notifier.send(
+            f"📈 *Rebalanceo semanal*\n"
+            f"USDC disponible: `${usdc:.2f}`\n"
+            f"Capital por nivel: `${old_capital:.0f}` → `${new_capital:.0f}`\n"
+            f"Grid reseteada con nuevo capital"
+        )
+        logger.info("Rebalanceo semanal completado: $%.0f → $%.0f", old_capital, new_capital)
+
+
 def _make_shutdown_handler(client: HyperliquidClient, notifier: TelegramNotifier):
     def _handler(signum, _frame):
         sig_name = "SIGTERM" if signum == signal.SIGTERM else "SIGINT"
@@ -200,6 +256,13 @@ def main():
     t = threading.Thread(target=poller.run, daemon=True)
     t.start()
     logger.info("Poller de comandos Telegram iniciado")
+
+    # ── Rebalanceo semanal ────────────────────────────────────────────────────
+    t_rebalance = threading.Thread(
+        target=_weekly_rebalance_loop, args=(grid, client, notifier), daemon=True
+    )
+    t_rebalance.start()
+    logger.info("Thread de rebalanceo semanal iniciado")
 
     # ── 4. WebSocket ──────────────────────────────────────────────────────────
     network = os.getenv("HYPERLIQUID_NETWORK", "mainnet")
