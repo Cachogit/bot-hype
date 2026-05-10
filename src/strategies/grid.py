@@ -577,11 +577,10 @@ class GridStrategy:
         return self.reset_grid(current_price)
 
     def all_waiting_buy(self) -> bool:
-        """True si todos los niveles tienen orden de compra esperando (ninguno en venta)."""
+        """True si ningún nivel tiene venta pendiente."""
         levels = self.state.get("levels", {})
-        return (
-            bool(levels) and
-            all(lvl["status"] == WAITING_BUY for lvl in levels.values())
+        return bool(levels) and not any(
+            lvl["status"] == WAITING_SELL for lvl in levels.values()
         )
 
     # ── Estadísticas ──────────────────────────────────────────────────────────
