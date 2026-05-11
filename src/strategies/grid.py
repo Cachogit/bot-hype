@@ -124,7 +124,7 @@ class GridStrategy:
         cap = self.state["capital_per_level"]
         return sum(
             cap for lvl in self.state["levels"].values()
-            if lvl["status"] != IDLE
+            if lvl["status"] == WAITING_BUY
         )
 
     def reconcile(self, current_price: float) -> dict:
