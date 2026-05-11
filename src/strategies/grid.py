@@ -142,7 +142,9 @@ class GridStrategy:
             cancelled = self.client.cancel_all_orders(ASSET, side="B")
             if cancelled:
                 logger.info("reconcile: canceladas %d órdenes de compra previas", len(cancelled))
-            open_oids = {o["oid"] for o in self.client.get_open_orders()}
+            open_orders_list = self.client.get_open_orders()
+            open_oids        = {o["oid"] for o in open_orders_list}
+            open_sell_oids   = {o["oid"] for o in open_orders_list if o.get("side") == "A"}
             placed    = []
             restored  = []
             errors    = []
@@ -195,7 +197,9 @@ class GridStrategy:
 
                 elif status == WAITING_SELL:
                     oid = lvl.get("sell_order_id")
-                    if not oid or oid not in open_oids:
+                    logger.info("WAITING_SELL nivel=%.2f | oid=%s | en_exchange=%s",
+                                level, oid, bool(oid and oid in open_sell_oids))
+                    if not oid or oid not in open_sell_oids:
                         sell_px = round(level * (1 + LEVEL_SPACING_PCT), 2)
                         # Si el mercado ya superó el precio de venta calculado,
                         # ajustar ligeramente por encima para que la ALO sea válida
@@ -223,6 +227,7 @@ class GridStrategy:
                                            free_hype, qty, level)
                             qty = round(free_hype, SZ_DECIMALS)
 
+                        time.sleep(2)  # dar tiempo al exchange a reflejar holds previos
                         result = self.client.limit_sell(ASSET, qty, sell_px)
                         if result.success:
                             lvl["sell_order_id"] = result.order_id
@@ -230,6 +235,8 @@ class GridStrategy:
                             restored.append(level)
                             logger.info("Sell restaurado | nivel=%.2f px=%.4f qty=%.4f", level, sell_px, qty)
                         else:
+                            logger.error("Sell NO restaurado | nivel=%.2f px=%.4f qty=%.4f | raw=%s",
+                                         level, sell_px, qty, result.raw)
                             errors.append(level)
 
             _save_state(self.state)
