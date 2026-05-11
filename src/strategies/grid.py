@@ -148,8 +148,13 @@ class GridStrategy:
             errors    = []
             skipped   = []
 
-            # Capital ya comprometido antes de empezar a colocar nuevas órdenes
-            committed = self._committed_capital()
+            # Tras cancelar todas las compras, el USDC comprometido son solo
+            # los niveles WAITING_SELL (su capital ya está convertido en HYPE).
+            cap = self.state["capital_per_level"]
+            committed = sum(
+                cap for lvl in self.state["levels"].values()
+                if lvl["status"] == WAITING_SELL
+            )
 
             for level_str, lvl in self.state["levels"].items():
                 level  = float(level_str)
@@ -163,7 +168,6 @@ class GridStrategy:
                             lvl.update({"status": IDLE, "buy_order_id": None})
                     continue
 
-                cap = self.state["capital_per_level"]
                 max_cap = cap * N_LEVELS
 
                 if status == IDLE:
