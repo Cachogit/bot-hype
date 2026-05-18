@@ -197,6 +197,19 @@ class TelegramNotifier:
         )
         return self.send(text)
 
+    def alert_grid_paused_manual(self, price: float, cancelled: int) -> bool:
+        text = (
+            f"⏸ *Grid HYPE pausado manualmente*\n"
+            f"{'─' * 28}\n"
+            f"Precio actual: `${price:.4f}`\n"
+            f"Órdenes de compra canceladas: `{cancelled}`\n"
+            f"Las ventas pendientes siguen activas.\n"
+            f"{'─' * 28}\n"
+            f"Usá `/reactivar` para retomar la grilla.\n"
+            f"`{datetime.now().strftime('%Y-%m-%d %H:%M')} UTC`"
+        )
+        return self.send(text)
+
     def alert_grid_shutdown(self, cancelled: int) -> bool:
         text = (
             f"🔴 *Grid HYPE detenido*\n"

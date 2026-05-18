@@ -505,6 +505,22 @@ class GridStrategy:
         logger.info("Grid reseteada — todos los niveles a IDLE, PnL en 0")
         return self.reconcile(current_price)
 
+    def pausar_manual(self, current_price: float):
+        """Pausa manual desde Telegram. No se auto-reactiva; requiere /reactivar."""
+        with self._lock:
+            if self.paused:
+                return
+            cancelled = self.client.cancel_all_orders(ASSET, side="B")
+            for lvl in self.state["levels"].values():
+                if lvl["status"] == WAITING_BUY:
+                    lvl.update({"status": IDLE, "buy_order_id": None})
+            self.state["paused"]       = True
+            self.state["pause_reason"] = "manual"
+            _save_state(self.state)
+        logger.info("Bot pausado manualmente | precio=$%.4f | órdenes canceladas=%d",
+                    current_price, len(cancelled))
+        self.notifier.alert_grid_paused_manual(price=current_price, cancelled=len(cancelled))
+
     def reactivar(self, current_price: float) -> dict:
         with self._lock:
             self.state["paused"]       = False

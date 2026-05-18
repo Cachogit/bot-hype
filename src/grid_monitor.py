@@ -12,6 +12,7 @@ Comandos Telegram aceptados:
   /status      — resumen del estado actual
   /shift_down  — mover grilla hacia abajo centrada en precio actual
   /shift_up    — mover grilla hacia arriba centrada en precio actual
+  /pausar      — pausar el bot manualmente (cancela compras, preserva ventas)
   /reactivar   — reactivar si está pausado manualmente
 """
 import sys, io, os
@@ -79,6 +80,10 @@ def _build_command_handlers(grid: GridStrategy,
         price = client.get_mid_price(ASSET)
         grid.shift("up", price)
 
+    def cmd_pausar(_args):
+        price = client.get_mid_price(ASSET)
+        grid.pausar_manual(price)
+
     def cmd_reactivar(_args):
         price = client.get_mid_price(ASSET)
         grid.reactivar(price)
@@ -140,6 +145,7 @@ def _build_command_handlers(grid: GridStrategy,
         "/status":     cmd_status,
         "/shift_down": cmd_shift_down,
         "/shift_up":   cmd_shift_up,
+        "/pausar":     cmd_pausar,
         "/reactivar":  cmd_reactivar,
         "/reset_grid": cmd_reset_grid,
         "/pnl":        cmd_pnl,
