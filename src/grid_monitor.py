@@ -12,6 +12,7 @@ Comandos Telegram aceptados:
   /status      — resumen del estado actual
   /shift_down  — mover grilla hacia abajo centrada en precio actual
   /shift_up    — mover grilla hacia arriba centrada en precio actual
+  /reconciliar — detectar y reponer órdenes faltantes sin resetear el estado
   /pausar      — pausar el bot manualmente (cancela compras, preserva ventas)
   /reactivar   — reactivar si está pausado manualmente
 """
@@ -80,6 +81,23 @@ def _build_command_handlers(grid: GridStrategy,
         price = client.get_mid_price(ASSET)
         grid.shift("up", price)
 
+    def cmd_reconciliar(_args):
+        price  = client.get_mid_price(ASSET)
+        result = grid.reconcile(price)
+        placed    = len(result.get("placed", []))
+        restored  = len(result.get("restored", []))
+        errors    = len(result.get("errors", []))
+        skipped   = len(result.get("skipped", []))
+        notifier.send(
+            f"🔧 *Reconciliación manual*\n"
+            f"{'─' * 28}\n"
+            f"Precio actual: `${price:.4f}`\n"
+            f"Órdenes colocadas: `{placed}`\n"
+            f"Órdenes restauradas: `{restored}`\n"
+            f"Errores: `{errors}`\n"
+            f"Saltadas (cap): `{skipped}`"
+        )
+
     def cmd_pausar(_args):
         price = client.get_mid_price(ASSET)
         grid.pausar_manual(price)
@@ -142,13 +160,14 @@ def _build_command_handlers(grid: GridStrategy,
         )
 
     return {
-        "/status":     cmd_status,
-        "/shift_down": cmd_shift_down,
-        "/shift_up":   cmd_shift_up,
-        "/pausar":     cmd_pausar,
-        "/reactivar":  cmd_reactivar,
-        "/reset_grid": cmd_reset_grid,
-        "/pnl":        cmd_pnl,
+        "/status":       cmd_status,
+        "/shift_down":   cmd_shift_down,
+        "/shift_up":     cmd_shift_up,
+        "/reconciliar":  cmd_reconciliar,
+        "/pausar":       cmd_pausar,
+        "/reactivar":    cmd_reactivar,
+        "/reset_grid":   cmd_reset_grid,
+        "/pnl":          cmd_pnl,
     }
 
 
