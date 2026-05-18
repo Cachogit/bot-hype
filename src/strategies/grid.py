@@ -101,8 +101,9 @@ class GridStrategy:
         self.state    = _load_state()
         if "capital_per_level" not in self.state:
             self.state["capital_per_level"] = CAPITAL_USDC
-        self._above_range_alerted = False
-        self._last_shift_price    = 0.0
+        self._above_range_alerted  = False
+        self._last_shift_price     = 0.0
+        self._rebalance_callback   = None  # se asigna desde grid_monitor
 
     # ── Propiedades runtime ───────────────────────────────────────────────────
 
@@ -396,6 +397,11 @@ class GridStrategy:
         )
         if not still_selling:
             self._above_range_alerted = False
+            if self._rebalance_callback:
+                try:
+                    self._rebalance_callback()
+                except Exception as e:
+                    logger.error("Error en rebalance callback: %s", e)
 
         _save_state(self.state)
         self.notifier.alert_grid_sell(

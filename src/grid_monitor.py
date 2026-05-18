@@ -175,53 +175,67 @@ REBALANCE_FILE = Path(ROOT_DIR) / "data" / "last_rebalance.json"
 REBALANCE_DAYS = 7
 
 
-def _weekly_rebalance_loop(grid, client, notifier):
+def _make_rebalance_fn(grid, client, notifier):
+    """
+    Retorna una función de rebalanceo que:
+    - Verifica que hayan pasado 7 días desde el último rebalanceo
+    - Calcula el nuevo capital con el portfolio total (USDC + HYPE * precio)
+    - Solo ejecuta si el nuevo capital supera al actual
+    Es idempotente: se puede llamar desde el loop horario y desde el callback de última venta.
+    """
     from config.grid_config import N_LEVELS
-    while True:
-        time.sleep(3600)  # verificar cada hora
 
-        # ¿Pasaron 7 días desde el último rebalanceo?
+    def _rebalance():
+        # ¿Pasaron 7 días?
         if REBALANCE_FILE.exists():
             try:
-                data      = json.loads(REBALANCE_FILE.read_text(encoding="utf-8"))
-                last_ts   = datetime.fromisoformat(data["last_rebalance"])
-                elapsed   = (datetime.now(timezone.utc) - last_ts).total_seconds()
+                data    = json.loads(REBALANCE_FILE.read_text(encoding="utf-8"))
+                last_ts = datetime.fromisoformat(data["last_rebalance"])
+                elapsed = (datetime.now(timezone.utc) - last_ts).total_seconds()
                 if elapsed < REBALANCE_DAYS * 86400:
-                    continue
+                    return
             except Exception:
                 pass
 
-        # ¿Todas las órdenes son de compra esperando? (ninguna venta pendiente)
-        if not grid.all_waiting_buy():
-            continue
-
+        # Calcular con portfolio total: USDC + HYPE en inventario * precio actual
+        price       = client.get_mid_price(ASSET)
         usdc        = client.get_usdc_balance()
-        new_capital = math.floor(usdc / N_LEVELS)
+        hype        = client.get_coin_balance(ASSET)
+        total       = usdc + hype * price
+        new_capital = math.floor(total / N_LEVELS)
         old_capital = grid.state["capital_per_level"]
 
-        if new_capital <= old_capital:
-            logger.info("Rebalanceo semanal: capital nuevo ($%.0f) no supera actual ($%.0f) — omitido",
-                        new_capital, old_capital)
-            # Guardar igual para no volver a intentar hasta la próxima semana
-            REBALANCE_FILE.write_text(json.dumps({
-                "last_rebalance": datetime.now(timezone.utc).isoformat()
-            }), encoding="utf-8")
-            continue
-
-        price = client.get_mid_price(ASSET)
-        grid.rebalance_capital(new_capital, price)
-
+        # Siempre actualizar la fecha para no reintentar hasta la próxima semana
         REBALANCE_FILE.write_text(json.dumps({
             "last_rebalance": datetime.now(timezone.utc).isoformat()
         }), encoding="utf-8")
 
+        if new_capital <= old_capital:
+            logger.info("Rebalanceo: capital nuevo ($%.0f) no supera actual ($%.0f) — omitido",
+                        new_capital, old_capital)
+            return
+
+        grid.rebalance_capital(new_capital, price)
+        logger.info("Rebalanceo completado: $%.0f → $%.0f/nivel | portfolio=$%.2f",
+                    old_capital, new_capital, total)
         notifier.send(
-            f"📈 *Rebalanceo semanal*\n"
-            f"USDC disponible: `${usdc:.2f}`\n"
+            f"📈 *Rebalanceo semanal — Compound*\n"
+            f"{'─' * 28}\n"
+            f"Portfolio total: `${total:.2f}` (USDC `${usdc:.2f}` + HYPE `{hype:.4f}` × `${price:.2f}`)\n"
             f"Capital por nivel: `${old_capital:.0f}` → `${new_capital:.0f}`\n"
-            f"Grid reseteada con nuevo capital"
+            f"Grid reseteada con nuevo capital.\n"
+            f"`{datetime.now().strftime('%Y-%m-%d %H:%M')} UTC`"
         )
-        logger.info("Rebalanceo semanal completado: $%.0f → $%.0f", old_capital, new_capital)
+
+    return _rebalance
+
+
+def _weekly_rebalance_loop(grid, rebalance_fn):
+    while True:
+        time.sleep(3600)  # verificar cada hora
+        # Solo intenta si no hay HYPE en inventario (sin ventas pendientes)
+        if grid.hype_in_inventory() == 0:
+            rebalance_fn()
 
 
 def _make_shutdown_handler(client: HyperliquidClient, notifier: TelegramNotifier):
@@ -282,8 +296,10 @@ def main():
     logger.info("Poller de comandos Telegram iniciado")
 
     # ── Rebalanceo semanal ────────────────────────────────────────────────────
+    rebalance_fn          = _make_rebalance_fn(grid, client, notifier)
+    grid._rebalance_callback = rebalance_fn  # dispara al ejecutarse la última venta
     t_rebalance = threading.Thread(
-        target=_weekly_rebalance_loop, args=(grid, client, notifier), daemon=True
+        target=_weekly_rebalance_loop, args=(grid, rebalance_fn), daemon=True
     )
     t_rebalance.start()
     logger.info("Thread de rebalanceo semanal iniciado")
