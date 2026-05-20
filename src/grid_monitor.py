@@ -83,13 +83,17 @@ def _build_command_handlers(grid: GridStrategy,
         grid.shift("up", price)
 
     def cmd_detener(_args):
-        result       = grid.detener()
-        usdc_liberado = result["cancelled_buys"] * grid.state["capital_per_level"]
-        notifier.alert_grid_detenido(
-            cancelled_buys=result["cancelled_buys"],
-            cancelled_sells=result["cancelled_sells"],
-            usdc_liberado=usdc_liberado,
-        )
+        try:
+            result        = grid.detener()
+            usdc_liberado = result["cancelled_buys"] * grid.state["capital_per_level"]
+            notifier.alert_grid_detenido(
+                cancelled_buys=result["cancelled_buys"],
+                cancelled_sells=result["cancelled_sells"],
+                usdc_liberado=usdc_liberado,
+            )
+        except Exception as e:
+            logger.error("Error en /detener: %s", e, exc_info=True)
+            notifier.send(f"❌ Error al ejecutar /detener: `{e}`")
 
     def cmd_reconciliar(_args):
         price  = client.get_mid_price(ASSET)
@@ -208,12 +212,13 @@ def _make_rebalance_fn(grid, client, notifier):
             except Exception:
                 pass
 
-        # Calcular con portfolio total: USDC + HYPE en inventario * precio actual
+        # Al disparar el compound no hay HYPE en inventario, todo el valor está en USDC.
+        # Usar solo USDC garantiza que los N_LEVELS buys entren en el saldo disponible.
         price       = client.get_mid_price(ASSET)
         usdc        = client.get_usdc_balance()
         hype        = client.get_coin_balance(ASSET)
-        total       = usdc + hype * price
-        new_capital = math.floor(total / N_LEVELS)
+        total       = usdc + hype * price   # solo para el mensaje informativo
+        new_capital = math.floor(usdc / N_LEVELS)
         old_capital = grid.state["capital_per_level"]
 
         # Siempre actualizar la fecha para no reintentar hasta la próxima semana
