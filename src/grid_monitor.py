@@ -57,7 +57,8 @@ logger = logging.getLogger("grid_monitor")
 
 def _build_command_handlers(grid: GridStrategy,
                              client: HyperliquidClient,
-                             notifier: TelegramNotifier) -> dict:
+                             notifier: TelegramNotifier,
+                             rebalance_fn=None) -> dict:
     def cmd_status(_args):
         price    = client.get_mid_price(ASSET)
         stats    = grid.stats_24h()
@@ -122,6 +123,13 @@ def _build_command_handlers(grid: GridStrategy,
 
     def cmd_reset_grid(_args):
         price = client.get_mid_price(ASSET)
+        # Aplicar compound primero si corresponde (7 días cumplidos y hay ganancia)
+        if rebalance_fn:
+            old_capital = grid.state["capital_per_level"]
+            rebalance_fn()
+            if grid.state["capital_per_level"] != old_capital:
+                # El compound ya hizo reset_grid internamente — no repetir
+                return
         result = grid.reset_grid(price)
         notifier.send(
             f"🔄 *Grid reseteada*\n"
@@ -314,23 +322,25 @@ def main():
             grid_high=grid.grid_high,
         )
 
-    # ── 3. Poller de comandos Telegram ────────────────────────────────────────
-    handlers = _build_command_handlers(grid, client, notifier)
+    # ── 3. Rebalanceo semanal (antes de handlers para pasarlo como argumento) ──
+    rebalance_fn             = _make_rebalance_fn(grid, client, notifier)
+    grid._rebalance_callback = rebalance_fn  # dispara al ejecutarse la última venta
+
+    # ── 4. Poller de comandos Telegram ────────────────────────────────────────
+    handlers = _build_command_handlers(grid, client, notifier, rebalance_fn)
     poller   = TelegramCommandPoller.from_notifier(notifier, handlers)
     t = threading.Thread(target=poller.run, daemon=True)
     t.start()
     logger.info("Poller de comandos Telegram iniciado")
 
-    # ── Rebalanceo semanal ────────────────────────────────────────────────────
-    rebalance_fn          = _make_rebalance_fn(grid, client, notifier)
-    grid._rebalance_callback = rebalance_fn  # dispara al ejecutarse la última venta
+    # ── 5. Thread de rebalanceo semanal ──────────────────────────────────────
     t_rebalance = threading.Thread(
         target=_weekly_rebalance_loop, args=(grid, rebalance_fn), daemon=True
     )
     t_rebalance.start()
     logger.info("Thread de rebalanceo semanal iniciado")
 
-    # ── 4. WebSocket ──────────────────────────────────────────────────────────
+    # ── 6. WebSocket ──────────────────────────────────────────────────────────
     network = os.getenv("HYPERLIQUID_NETWORK", "mainnet")
     ws = HyperliquidWS(
         address=client.subaccount,
