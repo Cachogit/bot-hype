@@ -277,31 +277,42 @@ def main():
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT,  shutdown)
 
-    # ── 1. Reconciliar ────────────────────────────────────────────────────────
+    # ── 1. Reconciliar (solo si el bot no está detenido) ─────────────────────
     price = client.get_mid_price(ASSET)
     logger.info("Precio actual %s: $%.4f", ASSET, price)
 
-    result = grid.reconcile(price)
-    logger.info(
-        "Reconciliación: %d colocados | %d restaurados | %d errores | %d cap-skip",
-        len(result["placed"]), len(result["restored"]),
-        len(result["errors"]), len(result.get("skipped", [])),
-    )
+    if grid.detenido:
+        logger.info("Bot en estado DETENIDO — omitiendo reconciliación al inicio")
+        notifier.send(
+            f"⛔ *Bot reiniciado en estado DETENIDO*\n"
+            f"Precio actual: `${price:.4f}`\n"
+            f"No se colocaron órdenes. Usá `/reactivar` o `/reset_grid` para retomar.\n"
+            f"`{datetime.now().strftime('%Y-%m-%d %H:%M')} UTC`"
+        )
+        result = {"placed": [], "restored": [], "errors": [], "skipped": []}
+    else:
+        result = grid.reconcile(price)
+        logger.info(
+            "Reconciliación: %d colocados | %d restaurados | %d errores | %d cap-skip",
+            len(result["placed"]), len(result["restored"]),
+            len(result["errors"]), len(result.get("skipped", [])),
+        )
 
-    # ── 2. Notificación de inicio ─────────────────────────────────────────────
-    stats    = grid.stats_24h()
-    hype_bal = client.get_coin_balance(ASSET)
-    usdc_bal = client.get_usdc_balance()
-    notifier.alert_grid_startup(
-        price=price,
-        hype_balance=hype_bal,
-        usdc_balance=usdc_bal,
-        cycles_24h=stats["cycles"],
-        profit_24h=stats["profit"],
-        orders_placed=result["placed"],
-        grid_low=grid.grid_low,
-        grid_high=grid.grid_high,
-    )
+    # ── 2. Notificación de inicio (solo si activo) ────────────────────────────
+    if not grid.detenido:
+        stats    = grid.stats_24h()
+        hype_bal = client.get_coin_balance(ASSET)
+        usdc_bal = client.get_usdc_balance()
+        notifier.alert_grid_startup(
+            price=price,
+            hype_balance=hype_bal,
+            usdc_balance=usdc_bal,
+            cycles_24h=stats["cycles"],
+            profit_24h=stats["profit"],
+            orders_placed=result["placed"],
+            grid_low=grid.grid_low,
+            grid_high=grid.grid_high,
+        )
 
     # ── 3. Poller de comandos Telegram ────────────────────────────────────────
     handlers = _build_command_handlers(grid, client, notifier)
