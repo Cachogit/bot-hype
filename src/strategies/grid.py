@@ -62,6 +62,7 @@ def _load_state() -> dict:
         "total_realized_pnl": 0.0,
         "paused":             False,
         "pause_reason":       None,
+        "detenido":           False,
         "auto_shift_count":   0,
         "capital_per_level":  CAPITAL_USDC,
     }
@@ -110,6 +111,10 @@ class GridStrategy:
     @property
     def paused(self) -> bool:
         return bool(self.state.get("paused"))
+
+    @property
+    def detenido(self) -> bool:
+        return bool(self.state.get("detenido"))
 
     @property
     def grid_low(self) -> float:
@@ -385,7 +390,7 @@ class GridStrategy:
 
         # Reset nivel + nuevo buy
         self.state["levels"][level_str] = _empty_level()
-        if not self.paused:
+        if not self.paused and not self.detenido:
             self._place_buy(level_str, level)
 
         # Resetear contador siempre; el flag solo cuando no quedan más ventas pendientes
@@ -397,7 +402,7 @@ class GridStrategy:
         )
         if not still_selling:
             self._above_range_alerted = False
-            if self._rebalance_callback:
+            if self._rebalance_callback and not self.detenido:
                 try:
                     self._rebalance_callback()
                 except Exception as e:
@@ -414,6 +419,8 @@ class GridStrategy:
 
     def on_price(self, price: float):
         """Llamado en cada tick de precio."""
+        if self.detenido:
+            return
         if price < self.grid_low:
             # Por debajo del piso: pausa automática
             if not self.paused:
@@ -506,10 +513,27 @@ class GridStrategy:
             self.state["total_realized_pnl"] = 0.0
             self.state["paused"]             = False
             self.state["pause_reason"]       = None
+            self.state["detenido"]           = False
             self.state["auto_shift_count"]   = 0
             _save_state(self.state)
         logger.info("Grid reseteada — todos los niveles a IDLE, PnL en 0")
         return self.reconcile(current_price)
+
+    def detener(self) -> dict:
+        """Cancela todas las órdenes (buys y sells) y detiene el bot completamente."""
+        with self._lock:
+            cancelled_buys  = self.client.cancel_all_orders(ASSET, side="B")
+            cancelled_sells = self.client.cancel_all_orders(ASSET, side="A")
+            for lvl in self.state["levels"].values():
+                if lvl["status"] in (WAITING_BUY, WAITING_SELL):
+                    lvl.update({"status": IDLE, "buy_order_id": None, "sell_order_id": None, "qty": 0.0})
+            self.state["detenido"]     = True
+            self.state["paused"]       = True
+            self.state["pause_reason"] = "detenido"
+            _save_state(self.state)
+        logger.info("Bot DETENIDO | buys cancelados=%d | sells cancelados=%d",
+                    len(cancelled_buys), len(cancelled_sells))
+        return {"cancelled_buys": len(cancelled_buys), "cancelled_sells": len(cancelled_sells)}
 
     def pausar_manual(self, current_price: float):
         """Pausa manual desde Telegram. No se auto-reactiva; requiere /reactivar."""
@@ -531,6 +555,7 @@ class GridStrategy:
         with self._lock:
             self.state["paused"]       = False
             self.state["pause_reason"] = None
+            self.state["detenido"]     = False
             _save_state(self.state)
         result = self.reconcile(current_price)
         self.notifier.alert_grid_reactivated(current_price)

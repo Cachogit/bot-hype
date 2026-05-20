@@ -197,6 +197,21 @@ class TelegramNotifier:
         )
         return self.send(text)
 
+    def alert_grid_detenido(self, cancelled_buys: int, cancelled_sells: int,
+                             usdc_liberado: float) -> bool:
+        text = (
+            f"⛔ *Bot DETENIDO*\n"
+            f"{'─' * 28}\n"
+            f"Órdenes de compra canceladas: `{cancelled_buys}`\n"
+            f"Órdenes de venta canceladas: `{cancelled_sells}`\n"
+            f"USDC liberado aprox.: `${usdc_liberado:.2f}`\n"
+            f"{'─' * 28}\n"
+            f"No se colocarán nuevas órdenes.\n"
+            f"Usá `/reactivar` o `/reset_grid` para retomar.\n"
+            f"`{datetime.now().strftime('%Y-%m-%d %H:%M')} UTC`"
+        )
+        return self.send(text)
+
     def alert_grid_paused_manual(self, price: float, cancelled: int) -> bool:
         text = (
             f"⏸ *Grid HYPE pausado manualmente*\n"

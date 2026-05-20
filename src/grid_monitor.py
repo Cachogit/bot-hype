@@ -12,9 +12,10 @@ Comandos Telegram aceptados:
   /status      — resumen del estado actual
   /shift_down  — mover grilla hacia abajo centrada en precio actual
   /shift_up    — mover grilla hacia arriba centrada en precio actual
+  /detener     — cancela TODAS las órdenes (buys y sells), detiene el bot
   /reconciliar — detectar y reponer órdenes faltantes sin resetear el estado
   /pausar      — pausar el bot manualmente (cancela compras, preserva ventas)
-  /reactivar   — reactivar si está pausado manualmente
+  /reactivar   — reactivar si está pausado o detenido
 """
 import sys, io, os
 
@@ -80,6 +81,15 @@ def _build_command_handlers(grid: GridStrategy,
     def cmd_shift_up(_args):
         price = client.get_mid_price(ASSET)
         grid.shift("up", price)
+
+    def cmd_detener(_args):
+        result       = grid.detener()
+        usdc_liberado = result["cancelled_buys"] * grid.state["capital_per_level"]
+        notifier.alert_grid_detenido(
+            cancelled_buys=result["cancelled_buys"],
+            cancelled_sells=result["cancelled_sells"],
+            usdc_liberado=usdc_liberado,
+        )
 
     def cmd_reconciliar(_args):
         price  = client.get_mid_price(ASSET)
@@ -163,6 +173,7 @@ def _build_command_handlers(grid: GridStrategy,
         "/status":       cmd_status,
         "/shift_down":   cmd_shift_down,
         "/shift_up":     cmd_shift_up,
+        "/detener":      cmd_detener,
         "/reconciliar":  cmd_reconciliar,
         "/pausar":       cmd_pausar,
         "/reactivar":    cmd_reactivar,
@@ -233,8 +244,7 @@ def _make_rebalance_fn(grid, client, notifier):
 def _weekly_rebalance_loop(grid, rebalance_fn):
     while True:
         time.sleep(3600)  # verificar cada hora
-        # Solo intenta si no hay HYPE en inventario (sin ventas pendientes)
-        if grid.hype_in_inventory() == 0:
+        if not grid.detenido and grid.hype_in_inventory() == 0:
             rebalance_fn()
 
 
