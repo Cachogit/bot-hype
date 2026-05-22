@@ -138,6 +138,31 @@ def _build_command_handlers(grid: GridStrategy,
             f"Precio actual: `${price:.4f}`"
         )
 
+    def cmd_fijar(args):
+        if not args:
+            notifier.send("❌ Uso: `/fijar <precio>`\nEjemplo: `/fijar 28.50`")
+            return
+        try:
+            precio_techo = float(args[0].replace(",", "."))
+        except ValueError:
+            notifier.send(f"❌ Precio inválido: `{args[0]}`\nEjemplo: `/fijar 28.50`")
+            return
+        try:
+            current_price = client.get_mid_price(ASSET)
+            result        = grid.fijar(precio_techo, current_price)
+            notifier.alert_grid_fijado(
+                precio_techo=precio_techo,
+                grid_low=result["grid_low"],
+                grid_high=result["grid_high"],
+                placed=result["placed"],
+                usdc_comprometido=result["usdc_comprometido"],
+            )
+        except ValueError as e:
+            notifier.send(f"❌ {e}")
+        except Exception as e:
+            logger.error("Error en /fijar: %s", e, exc_info=True)
+            notifier.send(f"❌ Error al ejecutar /fijar: `{e}`")
+
     def cmd_pnl(_args):
         pnl_file = Path(ROOT_DIR) / "data" / "pnl_history.json"
         if not pnl_file.exists():
@@ -191,6 +216,7 @@ def _build_command_handlers(grid: GridStrategy,
         "/reactivar":    cmd_reactivar,
         "/reset_grid":   cmd_reset_grid,
         "/pnl":          cmd_pnl,
+        "/fijar":        cmd_fijar,
     }
 
 
@@ -257,7 +283,7 @@ def _make_rebalance_fn(grid, client, notifier):
 def _weekly_rebalance_loop(grid, rebalance_fn):
     while True:
         time.sleep(3600)  # verificar cada hora
-        if not grid.detenido and grid.hype_in_inventory() == 0:
+        if not grid.detenido and not grid.esperando_entrada and grid.hype_in_inventory() == 0:
             rebalance_fn()
 
 

@@ -65,6 +65,7 @@ def _load_state() -> dict:
         "detenido":           False,
         "auto_shift_count":   0,
         "capital_per_level":  CAPITAL_USDC,
+        "esperando_entrada":  False,
     }
 
 
@@ -115,6 +116,10 @@ class GridStrategy:
     @property
     def detenido(self) -> bool:
         return bool(self.state.get("detenido"))
+
+    @property
+    def esperando_entrada(self) -> bool:
+        return bool(self.state.get("esperando_entrada"))
 
     @property
     def grid_low(self) -> float:
@@ -299,7 +304,11 @@ class GridStrategy:
             logger.info("Fill parcial buy | nivel=%s qty=%.4f/%.4f", level_str, lvl["qty"], expected)
             return
 
-        # Fill completo → colocar venta 0.6% por encima del nivel de compra
+        # Fill completo
+        if self.state.get("esperando_entrada"):
+            self.state["esperando_entrada"] = False
+            logger.info("Primera compra ejecutada — esperando_entrada limpiado, operación normal")
+
         lvl["buy_order_id"] = None
         sell_px = round(float(level_str) * (1 + LEVEL_SPACING_PCT), 2)
         qty     = lvl["qty"]
@@ -402,7 +411,7 @@ class GridStrategy:
         )
         if not still_selling:
             self._above_range_alerted = False
-            if self._rebalance_callback and not self.detenido:
+            if self._rebalance_callback and not self.detenido and not self.esperando_entrada:
                 try:
                     self._rebalance_callback()
                 except Exception as e:
@@ -420,6 +429,8 @@ class GridStrategy:
     def on_price(self, price: float):
         """Llamado en cada tick de precio."""
         if self.detenido:
+            return
+        if self.esperando_entrada:
             return
         if price < self.grid_low:
             # Por debajo del piso: pausa automática
@@ -534,6 +545,54 @@ class GridStrategy:
         logger.info("Bot DETENIDO | buys cancelados=%d | sells cancelados=%d",
                     len(cancelled_buys), len(cancelled_sells))
         return {"cancelled_buys": len(cancelled_buys), "cancelled_sells": len(cancelled_sells)}
+
+    def fijar(self, precio_techo: float, current_price: float) -> dict:
+        """
+        Fija la grilla con el techo en precio_techo (todas las órdenes por debajo).
+        Activa esperando_entrada: bloquea auto-shift, auto-compound y on_price
+        hasta que se ejecute la primera compra.
+        """
+        if precio_techo >= current_price:
+            raise ValueError(
+                f"El precio techo ${precio_techo:.4f} es mayor o igual al precio actual "
+                f"${current_price:.4f}. Todas las órdenes deben quedar por debajo del mercado."
+            )
+
+        # 1. Cancelar todas las órdenes abiertas
+        self.client.cancel_all_orders(ASSET, side="B")
+        self.client.cancel_all_orders(ASSET, side="A")
+
+        # 2. Calcular nueva grilla con el techo en precio_techo
+        new_levels_list = calc_levels(precio_techo)
+        new_low  = new_levels_list[0]
+        new_high = new_levels_list[-1]
+
+        with self._lock:
+            self.state["levels"]            = {str(lvl): _empty_level() for lvl in new_levels_list}
+            self.state["grid_low"]          = new_low
+            self.state["grid_high"]         = new_high
+            self.state["paused"]            = False
+            self.state["pause_reason"]      = None
+            self.state["detenido"]          = False
+            self.state["auto_shift_count"]  = 0
+            self.state["esperando_entrada"] = True
+            _save_state(self.state)
+
+        # 3. Colocar las 6 compras vía reconcile
+        result = self.reconcile(current_price)
+
+        cap = self.state["capital_per_level"]
+        logger.info(
+            "Grilla fijada | techo=$%.4f | rango=[%.4f-%.4f] | colocadas=%d | USDC=$%.0f",
+            precio_techo, new_low, new_high, len(result["placed"]), cap * len(result["placed"]),
+        )
+        return {
+            "precio_techo":      precio_techo,
+            "grid_low":          new_low,
+            "grid_high":         new_high,
+            "placed":            result["placed"],
+            "usdc_comprometido": cap * len(result["placed"]),
+        }
 
     def pausar_manual(self, current_price: float):
         """Pausa manual desde Telegram. No se auto-reactiva; requiere /reactivar."""

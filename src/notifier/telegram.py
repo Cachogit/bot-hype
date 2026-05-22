@@ -225,6 +225,22 @@ class TelegramNotifier:
         )
         return self.send(text)
 
+    def alert_grid_fijado(self, precio_techo: float, grid_low: float,
+                           grid_high: float, placed: list,
+                           usdc_comprometido: float) -> bool:
+        text = (
+            f"📌 *Grilla fijada — esperando entrada*\n"
+            f"{'─' * 28}\n"
+            f"Precio techo: `${precio_techo:.4f}`\n"
+            f"Rango de compras: `${grid_low:.4f}` → `${grid_high:.4f}`\n"
+            f"Órdenes colocadas: `{len(placed)}`\n"
+            f"USDC comprometido: `${usdc_comprometido:.0f}`\n"
+            f"{'─' * 28}\n"
+            f"Sin auto-shift ni compound hasta la primera ejecución.\n"
+            f"`{datetime.now().strftime('%Y-%m-%d %H:%M')} UTC`"
+        )
+        return self.send(text)
+
     def alert_grid_shutdown(self, cancelled: int) -> bool:
         text = (
             f"🔴 *Grid HYPE detenido*\n"
