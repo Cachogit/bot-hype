@@ -211,11 +211,11 @@ class GridStrategy:
                     logger.info("WAITING_SELL nivel=%.2f | oid=%s | en_exchange=%s",
                                 level, oid, bool(oid and oid in open_sell_oids))
                     if not oid or oid not in open_sell_oids:
-                        sell_px = round(level * (1 + LEVEL_SPACING_PCT), 2)
+                        sell_px = round(level * (1 + LEVEL_SPACING_PCT))
                         # Si el mercado ya superó el precio de venta calculado,
                         # ajustar ligeramente por encima para que la ALO sea válida
                         if sell_px <= current_price:
-                            sell_px = round(current_price * 1.001, 2)
+                            sell_px = round(current_price * 1.001)
                             logger.warning("Sell price ajustado sobre mercado: $%.4f | nivel=%.2f",
                                            sell_px, level)
                         qty     = lvl.get("qty") or round(cap / level, SZ_DECIMALS)
@@ -310,7 +310,7 @@ class GridStrategy:
             logger.info("Primera compra ejecutada — esperando_entrada limpiado, operación normal")
 
         lvl["buy_order_id"] = None
-        sell_px = round(float(level_str) * (1 + LEVEL_SPACING_PCT), 2)
+        sell_px = round(float(level_str) * (1 + LEVEL_SPACING_PCT))
         qty     = lvl["qty"]
 
         result = None

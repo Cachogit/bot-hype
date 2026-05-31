@@ -1,190 +1,68 @@
 {
-  "grid_low": 40.25,
-  "grid_high": 44.62,
+  "grid_low": 71351,
+  "grid_high": 73531,
   "levels": {
-    "40.25": {
-      "status": "IDLE",
-      "buy_order_id": null,
+    "71351": {
+      "status": "WAITING_BUY",
+      "buy_order_id": 450469304657,
       "sell_order_id": null,
       "buy_price": null,
       "sell_price": null,
       "qty": 0.0,
-      "expected_qty": 0.0
+      "expected_qty": 0.00139
     },
-    "40.48": {
-      "status": "IDLE",
-      "buy_order_id": null,
+    "71782": {
+      "status": "WAITING_BUY",
+      "buy_order_id": 450469313297,
       "sell_order_id": null,
       "buy_price": null,
       "sell_price": null,
       "qty": 0.0,
-      "expected_qty": 0.0
+      "expected_qty": 0.00138
     },
-    "40.71": {
-      "status": "IDLE",
-      "buy_order_id": null,
+    "72215": {
+      "status": "WAITING_BUY",
+      "buy_order_id": 450469320129,
       "sell_order_id": null,
       "buy_price": null,
       "sell_price": null,
       "qty": 0.0,
-      "expected_qty": 0.0
+      "expected_qty": 0.00137
     },
-    "40.94": {
-      "status": "IDLE",
-      "buy_order_id": null,
+    "72651": {
+      "status": "WAITING_BUY",
+      "buy_order_id": 450469326650,
       "sell_order_id": null,
       "buy_price": null,
       "sell_price": null,
       "qty": 0.0,
-      "expected_qty": 0.0
+      "expected_qty": 0.00136
     },
-    "41.17": {
-      "status": "IDLE",
-      "buy_order_id": null,
+    "73090": {
+      "status": "WAITING_BUY",
+      "buy_order_id": 450469337920,
       "sell_order_id": null,
       "buy_price": null,
       "sell_price": null,
       "qty": 0.0,
-      "expected_qty": 0.0
+      "expected_qty": 0.00135
     },
-    "41.4": {
-      "status": "IDLE",
-      "buy_order_id": null,
+    "73531": {
+      "status": "WAITING_BUY",
+      "buy_order_id": 450469347507,
       "sell_order_id": null,
       "buy_price": null,
       "sell_price": null,
       "qty": 0.0,
-      "expected_qty": 0.0
-    },
-    "41.63": {
-      "status": "IDLE",
-      "buy_order_id": null,
-      "sell_order_id": null,
-      "buy_price": null,
-      "sell_price": null,
-      "qty": 0.0,
-      "expected_qty": 0.0
-    },
-    "41.86": {
-      "status": "IDLE",
-      "buy_order_id": null,
-      "sell_order_id": null,
-      "buy_price": null,
-      "sell_price": null,
-      "qty": 0.0,
-      "expected_qty": 0.0
-    },
-    "42.09": {
-      "status": "IDLE",
-      "buy_order_id": null,
-      "sell_order_id": null,
-      "buy_price": null,
-      "sell_price": null,
-      "qty": 0.0,
-      "expected_qty": 0.0
-    },
-    "42.32": {
-      "status": "IDLE",
-      "buy_order_id": null,
-      "sell_order_id": null,
-      "buy_price": null,
-      "sell_price": null,
-      "qty": 0.0,
-      "expected_qty": 0.0
-    },
-    "42.55": {
-      "status": "IDLE",
-      "buy_order_id": null,
-      "sell_order_id": null,
-      "buy_price": null,
-      "sell_price": null,
-      "qty": 0.0,
-      "expected_qty": 0.0
-    },
-    "42.78": {
-      "status": "IDLE",
-      "buy_order_id": null,
-      "sell_order_id": null,
-      "buy_price": null,
-      "sell_price": null,
-      "qty": 0.0,
-      "expected_qty": 0.0
-    },
-    "43.01": {
-      "status": "IDLE",
-      "buy_order_id": null,
-      "sell_order_id": null,
-      "buy_price": null,
-      "sell_price": null,
-      "qty": 0.0,
-      "expected_qty": 0.0
-    },
-    "43.24": {
-      "status": "IDLE",
-      "buy_order_id": null,
-      "sell_order_id": null,
-      "buy_price": null,
-      "sell_price": null,
-      "qty": 0.0,
-      "expected_qty": 0.0
-    },
-    "43.47": {
-      "status": "IDLE",
-      "buy_order_id": null,
-      "sell_order_id": null,
-      "buy_price": null,
-      "sell_price": null,
-      "qty": 0.0,
-      "expected_qty": 0.0
-    },
-    "43.7": {
-      "status": "IDLE",
-      "buy_order_id": null,
-      "sell_order_id": null,
-      "buy_price": null,
-      "sell_price": null,
-      "qty": 0.0,
-      "expected_qty": 0.0
-    },
-    "43.93": {
-      "status": "IDLE",
-      "buy_order_id": null,
-      "sell_order_id": null,
-      "buy_price": null,
-      "sell_price": null,
-      "qty": 0.0,
-      "expected_qty": 0.0
-    },
-    "44.16": {
-      "status": "IDLE",
-      "buy_order_id": null,
-      "sell_order_id": null,
-      "buy_price": null,
-      "sell_price": null,
-      "qty": 0.0,
-      "expected_qty": 0.0
-    },
-    "44.39": {
-      "status": "IDLE",
-      "buy_order_id": null,
-      "sell_order_id": null,
-      "buy_price": null,
-      "sell_price": null,
-      "qty": 0.0,
-      "expected_qty": 0.0
-    },
-    "44.62": {
-      "status": "IDLE",
-      "buy_order_id": null,
-      "sell_order_id": null,
-      "buy_price": null,
-      "sell_price": null,
-      "qty": 0.0,
-      "expected_qty": 0.0
+      "expected_qty": 0.00135
     }
   },
   "completed_cycles": [],
   "total_realized_pnl": 0.0,
   "paused": false,
-  "pause_reason": null
+  "pause_reason": null,
+  "detenido": false,
+  "auto_shift_count": 0,
+  "capital_per_level": 99,
+  "esperando_entrada": false
 }

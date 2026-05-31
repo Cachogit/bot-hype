@@ -6,6 +6,7 @@ Reconexión automática con backoff exponencial.
 """
 import logging
 import time
+import requests
 
 from hyperliquid.info import Info
 from hyperliquid.utils import constants
@@ -36,8 +37,22 @@ class HyperliquidWS:
 
     # ── Conexión ──────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _fetch_safe_spot_meta(base_url: str) -> dict:
+        """Mismo filtro que HyperliquidClient: elimina entradas con índices fuera de rango."""
+        resp = requests.post(f"{base_url}/info", json={"type": "spotMeta"}, timeout=10)
+        resp.raise_for_status()
+        spot_meta = resp.json()
+        max_idx = len(spot_meta["tokens"]) - 1
+        spot_meta["universe"] = [
+            e for e in spot_meta["universe"]
+            if e["tokens"][0] <= max_idx and e["tokens"][1] <= max_idx
+        ]
+        return spot_meta
+
     def connect(self):
-        self._info = Info(base_url=self._base_url(), skip_ws=False)
+        spot_meta = self._fetch_safe_spot_meta(self._base_url())
+        self._info = Info(base_url=self._base_url(), skip_ws=False, spot_meta=spot_meta)
 
         # Resolver ID de HYPE en spot (puede ser "@N")
         try:

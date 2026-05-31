@@ -10,6 +10,7 @@ Uso:
 """
 import os
 import logging
+import requests
 from dataclasses import dataclass
 from typing import Any
 
@@ -50,68 +51,108 @@ class SpotBalance:
 
 class HyperliquidClient:
     """
-    Wrapper sobre el SDK oficial de Hyperliquid para operar spot en subcuenta.
+    Wrapper sobre el SDK oficial de Hyperliquid para operar spot.
 
     La wallet principal (private_key) firma las transacciones.
-    account_address indica la subcuenta desde la que se opera.
+    Si se provee subaccount_address, las órdenes se envían vía vaultAddress
+    a esa subcuenta. Si no, opera en la cuenta principal.
     """
 
     def __init__(
         self,
         private_key: str,
-        subaccount_address: str,
+        subaccount_address: str | None = None,
         network: str = "testnet",
     ):
         if not private_key.startswith("0x"):
             private_key = "0x" + private_key
 
-        self.wallet            = Account.from_key(private_key)
-        self.subaccount        = subaccount_address.lower()
-        self.network           = network
-        self.base_url          = MAINNET_URL if network == "mainnet" else TESTNET_URL
+        self.wallet   = Account.from_key(private_key)
+        self.network  = network
+        self.base_url = MAINNET_URL if network == "mainnet" else TESTNET_URL
+
+        # Si hay subcuenta, queries y órdenes apuntan a ella.
+        # Si no, se usa la dirección de la wallet principal.
+        self._using_subaccount = bool(subaccount_address)
+        self.subaccount = (
+            subaccount_address.lower()
+            if subaccount_address
+            else self.wallet.address.lower()
+        )
+
+        # Mainnet spot_meta puede tener entradas en "universe" con índices de
+        # tokens fuera de rango del array "tokens" (pares en proceso de activación).
+        # El SDK explota en esos casos, así que pre-filtramos antes de pasárselo.
+        spot_meta = self._fetch_safe_spot_meta()
 
         # Info: consultas de mercado y cuenta (no requiere firma)
-        self.info = Info(base_url=self.base_url, skip_ws=True)
+        self.info = Info(base_url=self.base_url, skip_ws=True, spot_meta=spot_meta)
 
-        # Exchange: operaciones firmadas; account_address apunta a la subcuenta
+        # Exchange: vault_address es el parámetro correcto para subcuentas.
+        # Cuando es None el SDK opera en la cuenta principal de la wallet.
         self.exchange = Exchange(
             wallet=self.wallet,
             base_url=self.base_url,
-            account_address=self.subaccount,
+            vault_address=self.subaccount if self._using_subaccount else None,
+            spot_meta=spot_meta,
         )
 
-        # Mapa base-token → nombre spot "@N" (ej. "HYPE" → "@107")
+        # Mapa base-token → nombre spot "@N" (ej. "BTC" → "@3")
         self._spot_names: dict[str, str] = {}
         self._load_spot_meta()
 
         logger.info(
-            "HyperliquidClient listo | red=%s | wallet=%s | subcuenta=%s",
+            "HyperliquidClient listo | red=%s | wallet=%s | %s=%s",
             network,
             self.wallet.address[:10] + "...",
+            "subcuenta" if self._using_subaccount else "cuenta_principal",
             self.subaccount[:10] + "...",
         )
 
     # ── SPOT META ─────────────────────────────────────────────────────────────
 
+    def _fetch_safe_spot_meta(self) -> dict:
+        """Fetches spot_meta y filtra pares con índices de token fuera de rango.
+
+        Hyperliquid puede tener entradas en universe[] donde base o quote
+        apuntan a un índice mayor que len(tokens)-1. El SDK tira IndexError
+        en esos casos. Filtramos esas entradas antes de pasarle el meta.
+        """
+        resp = requests.post(
+            f"{self.base_url}/info",
+            json={"type": "spotMeta"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        spot_meta = resp.json()
+        max_idx = len(spot_meta["tokens"]) - 1
+        original = len(spot_meta["universe"])
+        spot_meta["universe"] = [
+            e for e in spot_meta["universe"]
+            if e["tokens"][0] <= max_idx and e["tokens"][1] <= max_idx
+        ]
+        filtered = original - len(spot_meta["universe"])
+        if filtered:
+            logger.debug("spot_meta: %d pares filtrados por índice fuera de rango", filtered)
+        return spot_meta
+
     def _load_spot_meta(self):
         """
-        Redirige el nombre del token base (ej. "HYPE") al par spot correcto
+        Redirige el nombre del token base (ej. "BTC") al par spot correcto
         en el Info interno del Exchange, sobreescribiendo la entrada perp.
 
         El Exchange resuelve órdenes via self.info.name_to_coin[name].
-        Por defecto "HYPE" apunta al perp (asset 159).
-        Aquí lo redirigimos a "@107" (HYPE/USDC spot, asset 10107).
+        Por defecto "BTC" apunta al perp. Aquí lo redirigimos al spot BTC/USDC.
         """
         try:
             ex_info = self.exchange.info
-            # El Info interno ya tiene "HYPE/USDC" → "@107" cargado del spot meta.
             # Solo redirigir pares /USDC para no mezclar con otros quote tokens.
             for full_name, coin in list(ex_info.name_to_coin.items()):
                 if "/" in full_name:
                     parts = full_name.split("/")
                     if parts[1].upper() == "USDC":
                         base = parts[0].upper()
-                        self._spot_names[base] = coin      # "HYPE" → "@107"
+                        self._spot_names[base] = coin      # "BTC" → "@3"
                         ex_info.name_to_coin[base] = coin  # sobreescribe perp
                         logger.info("Spot redirect: %s → %s (asset %s)",
                                     base, coin, ex_info.coin_to_asset.get(coin))
@@ -122,9 +163,13 @@ class HyperliquidClient:
 
     @classmethod
     def from_env(cls) -> "HyperliquidClient":
-        """Construye el cliente leyendo variables del .env"""
+        """Construye el cliente leyendo variables del .env.
+
+        HYPERLIQUID_SUBACCOUNT_ADDRESS es opcional. Si no está seteada
+        (o es placeholder), el bot opera en la cuenta principal.
+        """
         private_key = os.environ.get("HYPERLIQUID_PRIVATE_KEY", "")
-        subaccount  = os.environ.get("HYPERLIQUID_SUBACCOUNT_ADDRESS", "")
+        subaccount  = os.environ.get("HYPERLIQUID_SUBACCOUNT_ADDRESS", "").strip()
         network     = os.environ.get("HYPERLIQUID_NETWORK", "testnet")
 
         if not private_key or private_key.startswith("0xTU_"):
@@ -132,13 +177,15 @@ class HyperliquidClient:
                 "HYPERLIQUID_PRIVATE_KEY no configurada. "
                 "Edita el archivo .env con tu clave privada."
             )
-        if not subaccount or subaccount.startswith("0xDIRECCION"):
-            raise ValueError(
-                "HYPERLIQUID_SUBACCOUNT_ADDRESS no configurada. "
-                "Edita el archivo .env con la direccion de tu subcuenta."
-            )
 
-        return cls(private_key, subaccount, network)
+        # Subcuenta opcional: vacía o placeholder → opera en cuenta principal
+        subaccount_arg = (
+            subaccount
+            if subaccount and not subaccount.startswith("0xDIRECCION")
+            else None
+        )
+
+        return cls(private_key, subaccount_arg, network)
 
     # ── CONSULTAS DE CUENTA ───────────────────────────────────────────────────
 
@@ -178,9 +225,22 @@ class HyperliquidClient:
         return result
 
     def get_usdc_balance(self) -> float:
-        """Retorna el USDC disponible en la subcuenta spot."""
+        """Retorna el USDC disponible.
+        Hyperliquid Unified Accounts guardan USDC en cross-margin, no en spot.
+        Intenta spot primero; si está vacío cae a withdrawable del user_state.
+        """
         balances = self.get_spot_balance("USDC")
-        return balances[0].total if balances else 0.0
+        if balances and balances[0].total > 0:
+            return balances[0].total
+        try:
+            state = self.info.user_state(self.subaccount)
+            withdrawable = float(state.get("withdrawable", 0) or 0)
+            if withdrawable > 0:
+                logger.info("USDC via user_state (cuenta unificada): %.2f", withdrawable)
+                return withdrawable
+        except Exception as e:
+            logger.debug("user_state fallback falló: %s", e)
+        return 0.0
 
     def get_coin_balance(self, coin: str) -> float:
         """Retorna el balance total de un token spot."""
@@ -372,11 +432,12 @@ class HyperliquidClient:
     # ── DIAGNOSTICO ───────────────────────────────────────────────────────────
 
     def status(self) -> dict:
-        """Resumen del estado de la subcuenta para logging/alertas."""
+        """Resumen del estado de la cuenta para logging/alertas."""
         balances = self.get_spot_balance()
         orders   = self.get_open_orders()
         return {
             "network":       self.network,
+            "modo":          "subcuenta" if self._using_subaccount else "cuenta_principal",
             "wallet":        self.wallet.address,
             "subaccount":    self.subaccount,
             "balances":      [{"coin": b.coin, "total": b.total, "available": b.available}
