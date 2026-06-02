@@ -356,12 +356,16 @@ class HyperliquidClient:
 
         side: 'B' para cancelar solo compras, 'A' para solo ventas, None para todas.
         """
-        orders    = self.get_open_orders()
-        spot_name = self._spot_names.get(coin.upper(), "").upper()
-        results   = []
+        orders   = self.get_open_orders()
+        spot_id  = self._spot_names.get(coin.upper(), "")
+        accepted = {coin.upper(), spot_id.upper()} - {""}
+        logger.info("cancel_all_orders | coin=%s | spot_id=%s | total_orders=%d | aceptadas=%s",
+                    coin, spot_id or "?", len(orders), accepted)
+        results = []
         for o in orders:
             order_coin = o.get("coin", "").upper()
-            if order_coin != coin.upper() and not (spot_name and order_coin == spot_name):
+            if order_coin not in accepted:
+                logger.debug("Orden ignorada | oid=%s | coin=%s", o.get("oid"), order_coin)
                 continue
             if side is not None and o.get("side") != side:
                 continue
