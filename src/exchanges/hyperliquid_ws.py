@@ -69,16 +69,20 @@ class HyperliquidWS:
         if ws_mgr is not None:
             ws_mgr.ws.on_close = self._on_ws_close
 
-        # Resolver ID de HYPE en spot (puede ser "@N")
+        # Resolver spot_id usando name_to_coin (construido desde universe, no desde tokens).
+        # "HYPE" aparece en all_mids como precio del perp (~$50); el spot correcto
+        # está en "@107" (~$70). name_to_coin["HYPE/USDC"] → "@107".
         try:
-            mids = self._info.all_mids()
-            if self.coin not in mids:
-                meta = self._info.spot_meta()
-                for token in meta.get("tokens", []):
-                    if token["name"].upper() == self.coin:
-                        self._spot_id = f"@{token['index']}"
+            mids     = self._info.all_mids()
+            resolved = False
+            for full_name, coin_id in self._info.name_to_coin.items():
+                if "/" in full_name:
+                    base = full_name.split("/")[0].upper()
+                    if base == self.coin.upper() and coin_id in mids:
+                        self._spot_id = coin_id
+                        resolved = True
                         break
-            else:
+            if not resolved:
                 self._spot_id = self.coin
         except Exception as e:
             logger.warning("No se pudo resolver spot_id para %s: %s", self.coin, e)
@@ -125,7 +129,7 @@ class HyperliquidWS:
         if msg.get("channel") != "allMids":
             return
         mids = msg.get("data", {}).get("mids", {})
-        price_str = mids.get(self.coin) or mids.get(self._spot_id)
+        price_str = mids.get(self._spot_id) or mids.get(self.coin)
         if price_str is None:
             return
         try:
