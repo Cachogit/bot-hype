@@ -11,16 +11,16 @@ MAX_AUTO_SHIFTS   = 6
 TAKER_FEE         = 0.0005
 MAKER_FEE         = 0.0001
 SZ_DECIMALS       = 5
+PRICE_DECIMALS    = 2   # decimales en precios de grilla (2 = centavos, adecuado para HYPE ~$70)
 
 
 def calc_levels(ref_price: float) -> list:
     """Calcula N_LEVELS precios de compra bajo ref_price.
     Primer nivel a FIRST_LEVEL_PCT bajo el precio; los siguientes
     separados LEVEL_SPACING_PCT entre sí. Retorna lista de menor a mayor.
-    Precios redondeados a enteros.
     """
-    first = round(ref_price * (1 - FIRST_LEVEL_PCT))
+    first = round(ref_price * (1 - FIRST_LEVEL_PCT), PRICE_DECIMALS)
     levels = [first]
     for _ in range(N_LEVELS - 1):
-        levels.append(round(levels[-1] * (1 - LEVEL_SPACING_PCT)))
+        levels.append(round(levels[-1] * (1 - LEVEL_SPACING_PCT), PRICE_DECIMALS))
     return sorted(levels)
