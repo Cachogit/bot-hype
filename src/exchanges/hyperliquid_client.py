@@ -298,6 +298,7 @@ class HyperliquidClient:
             is_buy=True,
             sz=qty,
             slippage=DEFAULT_SLIPPAGE,
+            vault_address=self.subaccount if self._using_subaccount else None,
         )
         return self._parse_order_response(resp)
 
@@ -311,6 +312,7 @@ class HyperliquidClient:
             is_buy=False,
             sz=qty,
             slippage=DEFAULT_SLIPPAGE,
+            vault_address=self.subaccount if self._using_subaccount else None,
         )
         return self._parse_order_response(resp)
 
@@ -325,9 +327,11 @@ class HyperliquidClient:
             sz=qty,
             limit_px=price,
             order_type={"limit": {"tif": "Alo"}},
+            vault_address=self.subaccount if self._using_subaccount else None,
         )
         logger.info("RAW response limit_buy: %s", resp)
         return self._parse_order_response(resp)
+
     def limit_sell(self, coin: str, qty: float, price: float) -> OrderResult:
         """Orden limite de venta (maker — tasa 0.01%)."""
         logger.info("LIMIT SELL %s | qty=%.6f | px=%.4f", coin, qty, price)
@@ -337,13 +341,18 @@ class HyperliquidClient:
             sz=qty,
             limit_px=price,
             order_type={"limit": {"tif": "Alo"}},
+            vault_address=self.subaccount if self._using_subaccount else None,
         )
         return self._parse_order_response(resp)
 
     def cancel_order(self, coin: str, order_id: int) -> dict:
         """Cancela una orden por ID."""
         logger.info("CANCEL %s oid=%d", coin, order_id)
-        return self.exchange.cancel(name=coin, oid=order_id)
+        return self.exchange.cancel(
+            name=coin,
+            oid=order_id,
+            vault_address=self.subaccount if self._using_subaccount else None,
+        )
 
     def cancel_all_orders(self, coin: str, side: str | None = None) -> list[dict]:
         """Cancela órdenes abiertas de un coin (perp o spot).
