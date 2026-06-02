@@ -90,10 +90,12 @@ class HyperliquidClient:
 
         # Exchange: vault_address es el parámetro correcto para subcuentas.
         # Cuando es None el SDK opera en la cuenta principal de la wallet.
+        _vault = self.subaccount if self._using_subaccount else None
+        logger.info("Exchange init | vault_address=%s", _vault)
         self.exchange = Exchange(
             wallet=self.wallet,
             base_url=self.base_url,
-            vault_address=self.subaccount if self._using_subaccount else None,
+            vault_address=_vault,
             spot_meta=spot_meta,
         )
 
@@ -170,7 +172,7 @@ class HyperliquidClient:
         (o es placeholder), el bot opera en la cuenta principal.
         """
         private_key = os.environ.get("HYPERLIQUID_PRIVATE_KEY", "")
-        subaccount  = os.environ.get("HYPERLIQUID_SUBACCOUNT_ADDRESS", "").strip()
+        subaccount  = os.environ.get("HYPERLIQUID_SUBACCOUNT_ADDRESS", "").strip().lower()
         network     = os.environ.get("HYPERLIQUID_NETWORK", "testnet")
 
         if not private_key or private_key.startswith("0xTU_"):
@@ -179,12 +181,11 @@ class HyperliquidClient:
                 "Edita el archivo .env con tu clave privada."
             )
 
-        # Subcuenta opcional: vacía o placeholder → opera en cuenta principal
-        subaccount_arg = (
-            subaccount
-            if subaccount and not subaccount.startswith("0xDIRECCION")
-            else None
-        )
+        # Subcuenta válida: debe ser una dirección 0x de 42 chars
+        subaccount_arg = subaccount if subaccount.startswith("0x") and len(subaccount) == 42 else None
+
+        logger.info("from_env | network=%s | subaccount_raw=%r | subaccount_arg=%s",
+                    network, subaccount, subaccount_arg)
 
         return cls(private_key, subaccount_arg, network)
 
