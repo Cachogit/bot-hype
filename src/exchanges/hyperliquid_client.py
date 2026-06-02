@@ -251,11 +251,13 @@ class HyperliquidClient:
         return balances[0].total if balances else 0.0
 
     def get_open_orders(self) -> list[dict]:
-        """Ordenes abiertas en la subcuenta."""
-        return self.info.open_orders(self.subaccount)
+        """Ordenes abiertas en la cuenta."""
+        orders = self.info.open_orders(self.subaccount)
+        logger.info("open_orders | cuenta=%s | encontradas=%d", self.subaccount, len(orders))
+        return orders
 
     def get_recent_fills(self) -> list[dict]:
-        """Ultimas operaciones ejecutadas en la subcuenta."""
+        """Ultimas operaciones ejecutadas en la cuenta."""
         return self.info.user_fills(self.subaccount)
 
     # ── PRECIOS DE MERCADO ────────────────────────────────────────────────────
@@ -346,7 +348,7 @@ class HyperliquidClient:
 
     def cancel_order(self, coin: str, order_id: int) -> dict:
         """Cancela una orden por ID."""
-        logger.info("CANCEL %s oid=%d", coin, order_id)
+        logger.info("CANCEL %s oid=%d | cuenta=%s", coin, order_id, self.subaccount)
         return self.exchange.cancel(name=coin, oid=order_id)
 
     def cancel_all_orders(self, coin: str, side: str | None = None) -> list[dict]:
