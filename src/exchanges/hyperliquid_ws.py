@@ -13,26 +13,23 @@ from hyperliquid.utils import constants
 
 logger = logging.getLogger(__name__)
 
-_RECONNECT_BASE    = 5
-_RECONNECT_MAX     = 120
-_RECONNECT_LONG    = 600   # 10 min — espera larga cuando hay 15 conexiones activas
-_HYPE_SPOT_ID      = "@107"   # fallback: coin ID de HYPE en spot Hyperliquid
-_MIN_STABLE_SECS   = 30    # una conexión se considera "estable" si duró ≥ 30 s
+_RECONNECT_BASE = 5
+_RECONNECT_MAX  = 120
+_HYPE_SPOT_ID   = "@107"   # fallback: coin ID de HYPE en spot Hyperliquid
 
 
 class HyperliquidWS:
 
     def __init__(self, address: str, on_fill, on_price=None,
                  coin: str = "HYPE", network: str = "mainnet"):
-        self.address      = address.lower()
-        self.on_fill      = on_fill
-        self.on_price     = on_price
-        self.coin         = coin.upper()
-        self.network      = network
-        self._spot_id     = coin.upper()   # puede ser "@N" para spot
-        self._info        = None
+        self.address  = address.lower()
+        self.on_fill  = on_fill
+        self.on_price = on_price
+        self.coin     = coin.upper()
+        self.network  = network
+        self._spot_id = coin.upper()   # puede ser "@N" para spot
+        self._info    = None
         self._last_price: float = 0.0
-        self._close_reason: str = ""
 
     def _base_url(self) -> str:
         return (constants.MAINNET_API_URL if self.network == "mainnet"
@@ -49,41 +46,24 @@ class HyperliquidWS:
         max_idx = len(spot_meta["tokens"]) - 1
         spot_meta["universe"] = [
             e for e in spot_meta["universe"]
-            if len(e.get("tokens", [])) >= 2
-            and e["tokens"][0] <= max_idx and e["tokens"][1] <= max_idx
+            if e["tokens"][0] <= max_idx and e["tokens"][1] <= max_idx
         ]
         return spot_meta
 
-    def _on_ws_close(self, ws, close_status_code, close_msg):
-        reason = str(close_msg or "")
-        self._close_reason = reason
-        logger.info("WS close | code=%s | msg=%s", close_status_code, reason)
-
     def connect(self):
-        self._close_reason = ""
         spot_meta = self._fetch_safe_spot_meta(self._base_url())
         self._info = Info(base_url=self._base_url(), skip_ws=False, spot_meta=spot_meta)
 
-        # Capturar razón de cierre para detectar "15 connections" desde el hilo daemon
-        ws_mgr = getattr(self._info, "ws_manager", None)
-        if ws_mgr is not None:
-            ws_mgr.ws.on_close = self._on_ws_close
-
-        # Resolver spot_id usando name_to_coin (construido desde universe, no desde tokens).
-        # spot_meta["tokens"] puede tener varios tokens con el mismo nombre,
-        # y "BTC" aparece en all_mids como perp — no como spot "@3".
-        # name_to_coin["BTC/USDC"] → "@3" apunta al par de trading spot correcto.
+        # Resolver ID de HYPE en spot (puede ser "@N")
         try:
-            mids     = self._info.all_mids()
-            resolved = False
-            for full_name, coin_id in self._info.name_to_coin.items():
-                if "/" in full_name:
-                    base = full_name.split("/")[0].upper()
-                    if base == self.coin.upper() and coin_id in mids:
-                        self._spot_id = coin_id
-                        resolved = True
+            mids = self._info.all_mids()
+            if self.coin not in mids:
+                meta = self._info.spot_meta()
+                for token in meta.get("tokens", []):
+                    if token["name"].upper() == self.coin:
+                        self._spot_id = f"@{token['index']}"
                         break
-            if not resolved:
+            else:
                 self._spot_id = self.coin
         except Exception as e:
             logger.warning("No se pudo resolver spot_id para %s: %s", self.coin, e)
@@ -178,22 +158,11 @@ class HyperliquidWS:
                 if ws_mgr is None:
                     raise RuntimeError("ws_manager no disponible en Info — verificar versión del SDK")
                 logger.info("WS daemon corriendo (hilo=%s)", ws_mgr.name)
-                connected_at = time.monotonic()
+                delay = _RECONNECT_BASE  # reset tras conexión exitosa
                 while ws_mgr.is_alive():
                     time.sleep(5)
-                lived = time.monotonic() - connected_at
-                if "15 connection" in self._close_reason.lower() or "cannot open" in self._close_reason.lower():
-                    delay = _RECONNECT_LONG
-                    logger.error("WS rechazado (límite 15 conexiones) — esperando %ds "
-                                 "para que expiren en el servidor", delay)
-                elif lived >= _MIN_STABLE_SECS:
-                    delay = _RECONNECT_BASE
-                    logger.warning("WS daemon terminó (vivió %.0fs) — reconectando en %ds",
-                                   lived, delay)
-                else:
-                    logger.warning("WS daemon terminó inmediatamente (vivió %.0fs) — "
-                                   "reconectando en %ds", lived, delay)
+                logger.warning("WS daemon terminó — reconectando en %ds", delay)
             except Exception as e:
-                logger.error("WS error: %s — reconectando en %ds", e, delay, exc_info=True)
+                logger.error("WS error: %s — reconectando en %ds", e, delay)
             time.sleep(delay)
             delay = min(delay * 2, _RECONNECT_MAX)
