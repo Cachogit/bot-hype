@@ -10,7 +10,7 @@ MAX_CAPITAL_USDC  = float(os.getenv("MAX_CAPITAL_USDC",  "5400.0"))
 MAX_AUTO_SHIFTS   = 6
 TAKER_FEE         = 0.0005
 MAKER_FEE         = 0.0001
-SZ_DECIMALS       = 5
+SZ_DECIMALS       = 2   # HYPE spot acepta máximo 2 decimales
 PRICE_DECIMALS    = 2   # decimales en precios de grilla (2 = centavos, adecuado para HYPE ~$70)
 
 

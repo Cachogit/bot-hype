@@ -63,6 +63,7 @@ class HyperliquidClient:
         private_key: str,
         subaccount_address: str | None = None,
         network: str = "testnet",
+        account_address: str | None = None,
     ):
         if not private_key.startswith("0x"):
             private_key = "0x" + private_key
@@ -71,43 +72,39 @@ class HyperliquidClient:
         self.network  = network
         self.base_url = MAINNET_URL if network == "mainnet" else TESTNET_URL
 
-        # Si hay subcuenta, queries y órdenes apuntan a ella.
-        # Si no, se usa la dirección de la wallet principal.
         self._using_subaccount = bool(subaccount_address)
+
+        # subaccount → vault_address (subcuenta registrada bajo esta wallet)
+        # account_address → la cuenta principal cuando la private_key es un agent key
+        # fallback → wallet.address (la propia wallet firma y opera)
         self.subaccount = (
-            subaccount_address.lower()
-            if subaccount_address
-            else self.wallet.address.lower()
+            subaccount_address.lower() if subaccount_address
+            else (account_address.lower() if account_address
+                  else self.wallet.address.lower())
         )
 
-        # Mainnet spot_meta puede tener entradas en "universe" con índices de
-        # tokens fuera de rango del array "tokens" (pares en proceso de activación).
-        # El SDK explota en esos casos, así que pre-filtramos antes de pasárselo.
         spot_meta = self._fetch_safe_spot_meta()
 
-        # Info: consultas de mercado y cuenta (no requiere firma)
         self.info = Info(base_url=self.base_url, skip_ws=True, spot_meta=spot_meta)
 
-        # Exchange: vault_address es el parámetro correcto para subcuentas.
-        # Cuando es None el SDK opera en la cuenta principal de la wallet.
-        _vault = self.subaccount if self._using_subaccount else None
-        logger.info("Exchange init | vault_address=%s", _vault)
+        _vault   = self.subaccount if self._using_subaccount else None
+        _account = account_address if not self._using_subaccount and account_address else None
+        logger.info("Exchange init | vault_address=%s | account_address=%s", _vault, _account)
         self.exchange = Exchange(
             wallet=self.wallet,
             base_url=self.base_url,
             vault_address=_vault,
+            account_address=_account,
             spot_meta=spot_meta,
         )
 
-        # Mapa base-token → nombre spot "@N" (ej. "BTC" → "@3")
         self._spot_names: dict[str, str] = {}
         self._load_spot_meta()
 
         logger.info(
-            "HyperliquidClient listo | red=%s | wallet=%s | %s=%s",
+            "HyperliquidClient listo | red=%s | wallet=%s | cuenta=%s",
             network,
             self.wallet.address[:10] + "...",
-            "subcuenta" if self._using_subaccount else "cuenta_principal",
             self.subaccount[:10] + "...",
         )
 
@@ -173,6 +170,7 @@ class HyperliquidClient:
         """
         private_key = os.environ.get("HYPERLIQUID_PRIVATE_KEY", "")
         subaccount  = os.environ.get("HYPERLIQUID_SUBACCOUNT_ADDRESS", "").strip().lower()
+        account     = os.environ.get("HYPERLIQUID_ACCOUNT_ADDRESS",    "").strip().lower()
         network     = os.environ.get("HYPERLIQUID_NETWORK", "testnet")
 
         if not private_key or private_key.startswith("0xTU_"):
@@ -181,13 +179,16 @@ class HyperliquidClient:
                 "Edita el archivo .env con tu clave privada."
             )
 
-        # Subcuenta válida: debe ser una dirección 0x de 42 chars
-        subaccount_arg = subaccount if subaccount.startswith("0x") and len(subaccount) == 42 else None
+        def _valid(addr: str) -> str | None:
+            return addr if addr.startswith("0x") and len(addr) == 42 else None
 
-        logger.info("from_env | network=%s | subaccount_raw=%r | subaccount_arg=%s",
-                    network, subaccount, subaccount_arg)
+        subaccount_arg = _valid(subaccount)
+        account_arg    = _valid(account)
 
-        return cls(private_key, subaccount_arg, network)
+        logger.info("from_env | network=%s | subaccount=%s | account=%s",
+                    network, subaccount_arg, account_arg)
+
+        return cls(private_key, subaccount_arg, network, account_arg)
 
     # ── CONSULTAS DE CUENTA ───────────────────────────────────────────────────
 
@@ -318,7 +319,8 @@ class HyperliquidClient:
 
     def limit_buy(self, coin: str, qty: float, price: float) -> OrderResult:
         """Orden limite de compra (maker — tasa 0.01%)."""
-        logger.info("LIMIT BUY %s | qty=%.6f | px=%.4f", coin, qty, price)
+        qty = round(qty, 2)
+        logger.info("LIMIT BUY %s | qty=%.2f | px=%.4f", coin, qty, price)
         resp = self.exchange.order(
             name=coin,
             is_buy=True,
@@ -331,7 +333,8 @@ class HyperliquidClient:
 
     def limit_sell(self, coin: str, qty: float, price: float) -> OrderResult:
         """Orden limite de venta (maker — tasa 0.01%)."""
-        logger.info("LIMIT SELL %s | qty=%.6f | px=%.4f", coin, qty, price)
+        qty = round(qty, 2)
+        logger.info("LIMIT SELL %s | qty=%.2f | px=%.4f", coin, qty, price)
         resp = self.exchange.order(
             name=coin,
             is_buy=False,
