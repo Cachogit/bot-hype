@@ -129,7 +129,8 @@ class HyperliquidClient:
         original = len(spot_meta["universe"])
         spot_meta["universe"] = [
             e for e in spot_meta["universe"]
-            if e["tokens"][0] <= max_idx and e["tokens"][1] <= max_idx
+            if len(e.get("tokens", [])) >= 2
+            and e["tokens"][0] <= max_idx and e["tokens"][1] <= max_idx
         ]
         filtered = original - len(spot_meta["universe"])
         if filtered:

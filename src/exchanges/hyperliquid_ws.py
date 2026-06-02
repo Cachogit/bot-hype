@@ -49,7 +49,8 @@ class HyperliquidWS:
         max_idx = len(spot_meta["tokens"]) - 1
         spot_meta["universe"] = [
             e for e in spot_meta["universe"]
-            if e["tokens"][0] <= max_idx and e["tokens"][1] <= max_idx
+            if len(e.get("tokens", [])) >= 2
+            and e["tokens"][0] <= max_idx and e["tokens"][1] <= max_idx
         ]
         return spot_meta
 
