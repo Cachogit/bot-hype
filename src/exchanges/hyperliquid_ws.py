@@ -13,23 +13,26 @@ from hyperliquid.utils import constants
 
 logger = logging.getLogger(__name__)
 
-_RECONNECT_BASE = 5
-_RECONNECT_MAX  = 120
-_HYPE_SPOT_ID   = "@107"   # fallback: coin ID de HYPE en spot Hyperliquid
+_RECONNECT_BASE    = 5
+_RECONNECT_MAX     = 120
+_RECONNECT_LONG    = 600   # 10 min — espera larga cuando hay 15 conexiones activas
+_HYPE_SPOT_ID      = "@107"   # fallback: coin ID de HYPE en spot Hyperliquid
+_MIN_STABLE_SECS   = 30    # una conexión se considera "estable" si duró ≥ 30 s
 
 
 class HyperliquidWS:
 
     def __init__(self, address: str, on_fill, on_price=None,
                  coin: str = "HYPE", network: str = "mainnet"):
-        self.address  = address.lower()
-        self.on_fill  = on_fill
-        self.on_price = on_price
-        self.coin     = coin.upper()
-        self.network  = network
-        self._spot_id = coin.upper()   # puede ser "@N" para spot
-        self._info    = None
+        self.address      = address.lower()
+        self.on_fill      = on_fill
+        self.on_price     = on_price
+        self.coin         = coin.upper()
+        self.network      = network
+        self._spot_id     = coin.upper()   # puede ser "@N" para spot
+        self._info        = None
         self._last_price: float = 0.0
+        self._close_reason: str = ""
 
     def _base_url(self) -> str:
         return (constants.MAINNET_API_URL if self.network == "mainnet"
@@ -46,13 +49,25 @@ class HyperliquidWS:
         max_idx = len(spot_meta["tokens"]) - 1
         spot_meta["universe"] = [
             e for e in spot_meta["universe"]
-            if e["tokens"][0] <= max_idx and e["tokens"][1] <= max_idx
+            if len(e.get("tokens", [])) >= 2
+            and e["tokens"][0] <= max_idx and e["tokens"][1] <= max_idx
         ]
         return spot_meta
 
+    def _on_ws_close(self, ws, close_status_code, close_msg):
+        reason = str(close_msg or "")
+        self._close_reason = reason
+        logger.info("WS close | code=%s | msg=%s", close_status_code, reason)
+
     def connect(self):
+        self._close_reason = ""
         spot_meta = self._fetch_safe_spot_meta(self._base_url())
         self._info = Info(base_url=self._base_url(), skip_ws=False, spot_meta=spot_meta)
+
+        # Capturar razón de cierre para detectar "15 connections" desde el hilo daemon
+        ws_mgr = getattr(self._info, "ws_manager", None)
+        if ws_mgr is not None:
+            ws_mgr.ws.on_close = self._on_ws_close
 
         # Resolver ID de HYPE en spot (puede ser "@N")
         try:
@@ -158,11 +173,22 @@ class HyperliquidWS:
                 if ws_mgr is None:
                     raise RuntimeError("ws_manager no disponible en Info — verificar versión del SDK")
                 logger.info("WS daemon corriendo (hilo=%s)", ws_mgr.name)
-                delay = _RECONNECT_BASE  # reset tras conexión exitosa
+                connected_at = time.monotonic()
                 while ws_mgr.is_alive():
                     time.sleep(5)
-                logger.warning("WS daemon terminó — reconectando en %ds", delay)
+                lived = time.monotonic() - connected_at
+                if "15 connection" in self._close_reason.lower() or "cannot open" in self._close_reason.lower():
+                    delay = _RECONNECT_LONG
+                    logger.error("WS rechazado (límite 15 conexiones) — esperando %ds "
+                                 "para que expiren en el servidor", delay)
+                elif lived >= _MIN_STABLE_SECS:
+                    delay = _RECONNECT_BASE
+                    logger.warning("WS daemon terminó (vivió %.0fs) — reconectando en %ds",
+                                   lived, delay)
+                else:
+                    logger.warning("WS daemon terminó inmediatamente (vivió %.0fs) — "
+                                   "reconectando en %ds", lived, delay)
             except Exception as e:
-                logger.error("WS error: %s — reconectando en %ds", e, delay)
+                logger.error("WS error: %s — reconectando en %ds", e, delay, exc_info=True)
             time.sleep(delay)
             delay = min(delay * 2, _RECONNECT_MAX)
