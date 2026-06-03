@@ -20,7 +20,7 @@ from typing import Optional
 
 from config.grid_config import (
     ASSET, CAPITAL_USDC, MAX_CAPITAL_USDC, MAKER_FEE,
-    LEVEL_SPACING_PCT, SZ_DECIMALS, MAX_AUTO_SHIFTS, N_LEVELS,
+    LEVEL_SPACING_PCT, SZ_DECIMALS, PRICE_DECIMALS, MAX_AUTO_SHIFTS, N_LEVELS,
     calc_levels,
 )
 
