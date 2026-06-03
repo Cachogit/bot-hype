@@ -161,6 +161,15 @@ class GridStrategy:
             errors    = []
             skipped   = []
 
+            try:
+                recent_fills   = self.client.get_recent_fills()
+                filled_buy_oids = {
+                    f["oid"]: f for f in recent_fills if f.get("side") == "B"
+                }
+            except Exception as _fe:
+                logger.warning("reconcile: no se pudieron obtener fills recientes: %s", _fe)
+                filled_buy_oids = {}
+
             # Tras cancelar todas las compras, el USDC comprometido son solo
             # los niveles WAITING_SELL (su capital ya está convertido en HYPE).
             cap = self.state["capital_per_level"]
@@ -172,6 +181,23 @@ class GridStrategy:
             for level_str, lvl in self.state["levels"].items():
                 level  = float(level_str)
                 status = lvl["status"]
+
+                # Recuperar fills que el WS no capturó: si la orden de compra ya no
+                # está en open_orders pero sí aparece en fills REST, el HYPE está
+                # en cuenta — pasar directo a WAITING_SELL para colocar la venta.
+                if status == WAITING_BUY:
+                    oid = lvl.get("buy_order_id")
+                    if oid and oid not in open_oids and oid in filled_buy_oids:
+                        fill = filled_buy_oids[oid]
+                        lvl["buy_price"]     = float(fill.get("px", level))
+                        lvl["qty"]           = float(fill.get("sz", lvl.get("expected_qty", 0)))
+                        lvl["buy_order_id"]  = None
+                        lvl["sell_order_id"] = None
+                        lvl["status"]        = WAITING_SELL
+                        status               = WAITING_SELL
+                        committed           += cap
+                        logger.info("Fill recuperado vía REST | nivel=%s px=%.4f qty=%.4f",
+                                    level_str, lvl["buy_price"], lvl["qty"])
 
                 if level >= current_price and status != WAITING_SELL:
                     # Por encima del precio: no colocar compras
@@ -211,11 +237,12 @@ class GridStrategy:
                     logger.info("WAITING_SELL nivel=%.2f | oid=%s | en_exchange=%s",
                                 level, oid, bool(oid and oid in open_sell_oids))
                     if not oid or oid not in open_sell_oids:
-                        sell_px = round(level * (1 + LEVEL_SPACING_PCT))
+                        buy_ref = lvl.get("buy_price") or level
+                        sell_px = round(buy_ref * (1 + LEVEL_SPACING_PCT), PRICE_DECIMALS)
                         # Si el mercado ya superó el precio de venta calculado,
                         # ajustar ligeramente por encima para que la ALO sea válida
                         if sell_px <= current_price:
-                            sell_px = round(current_price * 1.001)
+                            sell_px = round(current_price * 1.001, PRICE_DECIMALS)
                             logger.warning("Sell price ajustado sobre mercado: $%.4f | nivel=%.2f",
                                            sell_px, level)
                         qty     = lvl.get("qty") or round(cap / level, SZ_DECIMALS)
@@ -310,7 +337,7 @@ class GridStrategy:
             logger.info("Primera compra ejecutada — esperando_entrada limpiado, operación normal")
 
         lvl["buy_order_id"] = None
-        sell_px = round(float(level_str) * (1 + LEVEL_SPACING_PCT))
+        sell_px = round(px * (1 + LEVEL_SPACING_PCT), PRICE_DECIMALS)
         qty     = lvl["qty"]
 
         result = None
