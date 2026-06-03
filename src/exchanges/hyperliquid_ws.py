@@ -15,9 +15,14 @@ logger = logging.getLogger(__name__)
 
 _RECONNECT_BASE    = 5
 _RECONNECT_MAX     = 120
-_RECONNECT_LONG    = 600   # 10 min — espera larga cuando hay 15 conexiones activas
+_RECONNECT_LONG    = 600   # 10 min — espera larga cuando hay límite de conexiones
 _HYPE_SPOT_ID      = "@107"   # fallback: coin ID de HYPE en spot Hyperliquid
 _MIN_STABLE_SECS   = 30    # una conexión se considera "estable" si duró ≥ 30 s
+
+
+def _is_conn_limit(reason: str) -> bool:
+    r = reason.lower()
+    return "cannot open" in r or "connection" in r and "more than" in r
 
 
 class HyperliquidWS:
@@ -181,10 +186,10 @@ class HyperliquidWS:
                 while ws_mgr.is_alive():
                     time.sleep(5)
                 lived = time.monotonic() - connected_at
-                if "15 connection" in self._close_reason.lower() or "cannot open" in self._close_reason.lower():
+                if _is_conn_limit(self._close_reason):
                     delay = _RECONNECT_LONG
-                    logger.error("WS rechazado (límite 15 conexiones) — esperando %ds "
-                                 "para que expiren en el servidor", delay)
+                    logger.error("WS rechazado (límite conexiones: %r) — esperando %ds",
+                                 self._close_reason, delay)
                 elif lived >= _MIN_STABLE_SECS:
                     delay = _RECONNECT_BASE
                     logger.warning("WS daemon terminó (vivió %.0fs) — reconectando en %ds",
@@ -193,6 +198,10 @@ class HyperliquidWS:
                     logger.warning("WS daemon terminó inmediatamente (vivió %.0fs) — "
                                    "reconectando en %ds", lived, delay)
             except Exception as e:
-                logger.error("WS error: %s — reconectando en %ds", e, delay, exc_info=True)
+                if _is_conn_limit(self._close_reason):
+                    delay = _RECONNECT_LONG
+                    logger.error("WS rechazado (límite conexiones) — esperando %ds", delay)
+                else:
+                    logger.error("WS error: %s — reconectando en %ds", e, delay, exc_info=True)
             time.sleep(delay)
             delay = min(delay * 2, _RECONNECT_MAX)
