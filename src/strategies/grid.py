@@ -162,13 +162,17 @@ class GridStrategy:
             skipped   = []
 
             try:
-                recent_fills   = self.client.get_recent_fills()
+                recent_fills    = self.client.get_recent_fills()
                 filled_buy_oids = {
                     f["oid"]: f for f in recent_fills if f.get("side") == "B"
                 }
+                filled_sell_oids = {
+                    f["oid"]: f for f in recent_fills if f.get("side") == "A"
+                }
             except Exception as _fe:
                 logger.warning("reconcile: no se pudieron obtener fills recientes: %s", _fe)
-                filled_buy_oids = {}
+                filled_buy_oids  = {}
+                filled_sell_oids = {}
 
             # Tras cancelar todas las compras, el USDC comprometido son solo
             # los niveles WAITING_SELL (su capital ya está convertido en HYPE).
@@ -177,6 +181,8 @@ class GridStrategy:
                 cap for lvl in self.state["levels"].values()
                 if lvl["status"] == WAITING_SELL
             )
+
+            pending_sells = []  # ventas faltantes: se colocan fuera del lock
 
             for level_str, lvl in self.state["levels"].items():
                 level  = float(level_str)
@@ -237,49 +243,101 @@ class GridStrategy:
                     logger.info("WAITING_SELL nivel=%.2f | oid=%s | en_exchange=%s",
                                 level, oid, bool(oid and oid in open_sell_oids))
                     if not oid or oid not in open_sell_oids:
+                        # Venta ejecutada durante el downtime: recuperar PNL y resetear nivel
+                        if oid and oid in filled_sell_oids:
+                            fill      = filled_sell_oids[oid]
+                            sell_px   = float(fill.get("px", lvl.get("sell_price") or level))
+                            sell_sz   = float(fill.get("sz", lvl.get("qty") or 0))
+                            buy_price = lvl.get("buy_price") or level
+                            qty       = lvl.get("qty") or sell_sz
+                            gross    = (sell_px - buy_price) * qty
+                            buy_fee  = qty * buy_price * MAKER_FEE
+                            sell_fee = qty * sell_px * MAKER_FEE
+                            pnl_net  = round(gross - buy_fee - sell_fee, 4)
+                            ts       = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                            cycle    = {
+                                "timestamp":  ts,
+                                "level":      level,
+                                "buy_price":  buy_price,
+                                "sell_price": round(sell_px, 4),
+                                "qty":        qty,
+                                "pnl_net":    pnl_net,
+                            }
+                            self.state["completed_cycles"].append({**cycle, "completed_at": ts})
+                            _append_pnl_history(cycle)
+                            self.state["total_realized_pnl"] = round(
+                                self.state["total_realized_pnl"] + pnl_net, 4
+                            )
+                            self.state["levels"][level_str] = _empty_level()
+                            committed -= cap
+                            if (not self.paused and not self.detenido
+                                    and committed + cap <= cap * N_LEVELS):
+                                if self._place_buy(level_str, level):
+                                    committed += cap
+                                    restored.append(level)
+                                else:
+                                    errors.append(level)
+                            logger.info(
+                                "Sell fill recuperado vía REST | nivel=%s px=%.4f qty=%.4f pnl=%.4f",
+                                level_str, sell_px, qty, pnl_net,
+                            )
+                            continue
+
+                        # Venta faltante: diferir al post-lock para no bloquear on_fill
                         buy_ref = lvl.get("buy_price") or level
                         sell_px = round(buy_ref * (1 + LEVEL_SPACING_PCT), PRICE_DECIMALS)
-                        # Si el mercado ya superó el precio de venta calculado,
-                        # ajustar ligeramente por encima para que la ALO sea válida
                         if sell_px <= current_price:
                             sell_px = round(current_price * 1.001, PRICE_DECIMALS)
                             logger.warning("Sell price ajustado sobre mercado: $%.4f | nivel=%.2f",
                                            sell_px, level)
-                        qty     = lvl.get("qty") or round(cap / level, SZ_DECIMALS)
-
-                        try:
-                            balances  = self.client.get_spot_balance(ASSET)
-                            free_hype = balances[0].available if balances else 0.0
-                        except Exception as e:
-                            logger.error("No se pudo consultar saldo HYPE en reconcile: %s | nivel=%.2f", e, level)
-                            errors.append(level)
-                            continue
-
-                        if free_hype <= 0:
-                            logger.error("Saldo libre HYPE=0 — no se restaura sell | nivel=%.2f qty=%.4f", level, qty)
-                            errors.append(level)
-                            continue
-
-                        if free_hype < qty:
-                            logger.warning("Saldo libre HYPE %.4f < qty %.4f — ajustando sell en reconcile | nivel=%.2f",
-                                           free_hype, qty, level)
-                            qty = round(free_hype, SZ_DECIMALS)
-
-                        time.sleep(2)  # dar tiempo al exchange a reflejar holds previos
-                        result = self.client.limit_sell(ASSET, qty, sell_px)
-                        if result.success:
-                            lvl["sell_order_id"] = result.order_id
-                            lvl["sell_price"]    = sell_px
-                            restored.append(level)
-                            logger.info("Sell restaurado | nivel=%.2f px=%.4f qty=%.4f", level, sell_px, qty)
-                        else:
-                            logger.error("Sell NO restaurado | nivel=%.2f px=%.4f qty=%.4f | raw=%s",
-                                         level, sell_px, qty, result.raw)
-                            errors.append(level)
+                        qty = lvl.get("qty") or round(cap / level, SZ_DECIMALS)
+                        pending_sells.append((level_str, level, qty, sell_px))
 
             _save_state(self.state)
-            return {"placed": placed, "restored": restored,
-                    "errors": errors, "skipped": skipped}
+
+        # ── Colocar ventas faltantes fuera del lock (sleep + REST sin bloquear fills) ──
+        for level_str, level, qty, sell_px in pending_sells:
+            with self._lock:
+                lvl = self.state["levels"].get(level_str)
+                if lvl is None or lvl["status"] != WAITING_SELL:
+                    continue  # fill llegó por WS mientras esperábamos
+
+            try:
+                balances  = self.client.get_spot_balance(ASSET)
+                free_hype = balances[0].available if balances else 0.0
+            except Exception as e:
+                logger.error("No se pudo consultar saldo HYPE en reconcile: %s | nivel=%.2f", e, level)
+                errors.append(level)
+                continue
+
+            if free_hype <= 0:
+                logger.error("Saldo libre HYPE=0 — no se restaura sell | nivel=%.2f qty=%.4f", level, qty)
+                errors.append(level)
+                continue
+
+            if free_hype < qty:
+                logger.warning("Saldo libre HYPE %.4f < qty %.4f — ajustando sell en reconcile | nivel=%.2f",
+                               free_hype, qty, level)
+                qty = round(free_hype, SZ_DECIMALS)
+
+            time.sleep(2)  # dar tiempo al exchange a reflejar holds previos
+            result = self.client.limit_sell(ASSET, qty, sell_px)
+            with self._lock:
+                lvl = self.state["levels"].get(level_str)
+                if lvl is None:
+                    continue
+                if result.success:
+                    lvl["sell_order_id"] = result.order_id
+                    lvl["sell_price"]    = sell_px
+                    restored.append(level)
+                    _save_state(self.state)
+                    logger.info("Sell restaurado | nivel=%.2f px=%.4f qty=%.4f", level, sell_px, qty)
+                else:
+                    logger.error("Sell NO restaurado | nivel=%.2f px=%.4f qty=%.4f | raw=%s",
+                                 level, sell_px, qty, result.raw)
+                    errors.append(level)
+
+        return {"placed": placed, "restored": restored, "errors": errors, "skipped": skipped}
 
     def _place_buy(self, level_str: str, level: float) -> bool:
         qty    = round(self.state["capital_per_level"] / level, SZ_DECIMALS)
